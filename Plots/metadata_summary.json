@@ -1,0 +1,14 @@
+{
+  "noise": {
+    "mode": "phase",
+    "cutoff_hz": 100000000.0,
+    "strength_amp": 0.0,
+    "strength_phase": 0.03,
+    "seed": 7
+  },
+  "cavity": {
+    "detuning_hz": 1500000.0,
+    "nonlinearity_hz": 750000.0,
+    "loss_hz": 3000000.0,
+    "kappa_out_hz": 3000000.0,
+    "F_s": 

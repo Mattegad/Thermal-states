@@ -1,0 +1,44 @@
+{
+  "noise": {
+    "mode": "phase",
+    "cutoff_hz": 100000000.0,
+    "strength_amp": 0.0,
+    "strength_phase": 0.03,
+    "seed": 7
+  },
+  "cavity": {
+    "detuning_hz": 1500000.0,
+    "nonlinearity_hz": 750000.0,
+    "loss_hz": 3000000.0,
+    "kappa_out_hz": 3000000.0,
+    "F_s": {
+      "real": 1.5,
+      "imag": 0.0
+    },
+    "psi0": {
+      "real": 0.0,
+      "imag": 0.0
+    }
+  },
+  "sim": {
+    "duration_s": 0.0002,
+    "dt_s": 2e-09,
+    "discard_fraction": 0.15,
+    "integrator": "rk4",
+    "store_every": 2
+  },
+  "homodyne": {
+    "lo_amplitude": 60.0,
+    "lo_phase_rad": 1.5707963267948966,
+    "detection_efficiency": 1.0,
+    "responsivity": 1.0,
+    "add_shot_noise": true,
+    "shot_noise_psd": 0.5
+  },
+  "spectrum": {
+    "nperseg": 16384,
+    "window": "hann",
+    "detrend": "constant",
+    "average": "mean"
+  }
+}
