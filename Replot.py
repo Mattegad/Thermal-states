@@ -561,11 +561,12 @@ def plot_cumulative_band_power(results: Dict[str, np.ndarray], use_measured: boo
 
 def plot_all_balanced_psds(
     results: Dict[str, np.ndarray],
-    rbw_mhz: float = 1e-1,
+    rbw_mhz: float = 10.0,
     fmin_mhz: Optional[float] = None,
     fmax_mhz: Optional[float] = None,
     loglog: bool = False,
     shot_noise_channel: str = "i_minus_det_t_wn",
+    shot_noise_channel_ref: str = "i_minus_det_ref_t",
     eps: float = 1e-30
 ) -> Optional[Dict[str, plt.Figure]]:
     """
@@ -580,7 +581,8 @@ def plot_all_balanced_psds(
     eps:
         Small value to avoid log of zero when normalizing by shot noise level.
     """
-    needed = ["i_plus_meas_t", "i_minus_meas_t", "i_plus_det_ref_t", "i_minus_det_ref_t", "i_plus_det_t_wn", "i_minus_det_t_wn"]
+    needed = ["i_plus_meas_t", "i_minus_meas_t", "i_plus_det_t_wn", "i_minus_det_t_wn"]
+    needed_ref = ["i_plus_det_ref_t", "i_minus_det_ref_t"]
     if not all(k in results for k in needed):
         return None
     
@@ -593,26 +595,36 @@ def plot_all_balanced_psds(
         if rbw_mhz > 0:
             f, p = rbw_average_psd(f, p, rbw_mhz)
         curves[key] = (f, p)
+    
+    for key in needed_ref:
+        f, p = compute_psd(results[key], fs_mhz=fs)
+        if rbw_mhz > 0:
+            f, p = rbw_average_psd(f, p, rbw_mhz)
+        curves[key] = (f, p)
 
     # Shot-noise reference
     if shot_noise_channel not in curves:
         raise ValueError(f"Shot noise reference channel '{shot_noise_channel}' not found among computed PSDs.")
+    if shot_noise_channel_ref not in curves:
+        raise ValueError(f"Shot noise reference without cavity channel '{shot_noise_channel_ref}' not found among computed PSDs.")
     
     f_ref, p_ref = curves[shot_noise_channel]
+    f_ref_ref, p_ref_ref = curves[shot_noise_channel_ref]
     p_ref = np.maximum(p_ref, eps)  # avoid zero or negative values
+    p_ref_ref = np.maximum(p_ref_ref, eps)
 
     # Plot in dB relative to shot noise level
     fig = plt.figure(figsize=(10, 6))
 
     pretty_labels = {
-        "i1_meas_t": "i1 / shot noise",
-        "i2_meas_t": "i2 / shot noise",
-        "i_plus_meas_t": "i+ / shot noise",
-        "i_minus_meas_t": "i- / shot noise",
-        "i_plus_det_ref_t": "i+ det ref / shot noise",
-        "i_minus_det_ref_t": "i- det ref / shot noise",
-        "i_plus_det_t_wn": "i+ det wn / shot noise",
-        "i_minus_det_t_wn": "i- det wn / shot noise",
+        "i1_meas_t": "i1",
+        "i2_meas_t": "i2",
+        "i_plus_meas_t": "i+",
+        "i_minus_meas_t": "i-",
+        "i_plus_det_ref_t": "i+ det ref",
+        "i_minus_det_ref_t": "i- det ref",
+        "i_plus_det_t_wn": "i+ det wn",
+        "i_minus_det_t_wn": "i- det wn",
     }
 
     for key in needed:
@@ -629,7 +641,23 @@ def plot_all_balanced_psds(
 
         plt.plot(f[mask], trace_db[mask], label=pretty_labels.get(key, key))
 
-        #print(np.mean(trace_db[mask]))
+    for key in needed_ref:
+        f, p = curves[key]
+
+        ratio = np.maximum(p, eps) / p_ref_ref
+        trace_db = 10.0 * np.log10(ratio)
+
+        mask = np.ones_like(f, dtype=bool)
+        if fmin_mhz is not None:
+            mask &= f >= fmin_mhz
+        if fmax_mhz is not None:
+            mask &= f <= fmax_mhz
+
+        plt.plot(f[mask], trace_db[mask], label=pretty_labels.get(key, key))
+
+        if key == "i_plus_det_ref_t":
+            print(np.mean(trace_db[mask]))
+            print(trace_db[mask].size)
 
     # 0 dB shot-noise reference line
     mask_ref = np.ones_like(f_ref, dtype=bool)
@@ -638,13 +666,13 @@ def plot_all_balanced_psds(
     if fmax_mhz is not None:
         mask_ref &= f_ref <= fmax_mhz
     
-    plt.plot(
-        f_ref[mask_ref],
-        np.zeros(np.count_nonzero(mask_ref)),
-        "--",
-        linewidth=1,
-        label=f"Shot noise level ({shot_noise_channel})"
-    )
+    #plt.plot(
+        #f_ref[mask_ref],
+        #np.zeros(np.count_nonzero(mask_ref)),
+        #"--",
+        #linewidth=1,
+        #label=f"Shot noise level ({shot_noise_channel})"
+    #)
     
     plt.xlabel("Analysis frequency (MHz)")
     plt.ylabel("Noise power (dB)")
@@ -717,23 +745,23 @@ def main() -> None:
     # -----------------------
     # CONFIG
     # -----------------------
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("polariton_homodyne_results_balanced_both.npz")
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("polariton_homodyne_results_balanced_both_5.npz")
     save_figures = True
-    output_dir = Path("Plots_balanced_both")
+    output_dir = Path("Plots_balanced_both_5")
 
     # Choose what to replot and how
-    time_trace = False
-    quadratures_vs_time = False
+    time_trace = True
+    quadratures_vs_time = True
     phase_space = True
-    spectra = True
+    spectra = False
     cumulative = False
     psds = True
     lo_sweep = False
 
     # spectrum display choices
     fmin_mhz = 1e-3
-    fmax_mhz = 1.2e2
-    rbw_mhz = 3e-2
+    fmax_mhz = 2000.0
+    rbw_mhz = 4.0
     loglog = False
 
     # LO phase sweep replot choices

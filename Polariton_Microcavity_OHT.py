@@ -108,10 +108,10 @@ class CavityConfig:
 
     All dynamical coefficients are in units of ps^-1. To convert from meV, use ħ = 0.658 meV*ps.
     """
-    detuning_inv_ps: float = 1.4e-1 / HBAR_MEV_PS   # Δ = δ_meV / ħ 
+    detuning_inv_ps: float = 1.4e-1 / HBAR_MEV_PS   # Δ = δ_meV / ħ
     nonlinearity_inv_ps: float = 1.2e-2 / HBAR_MEV_PS  # U = g_meV_um2 / ħ
-    loss_inv_ps: float = 7e-2 / HBAR_MEV_PS       # γ 
-    kappa_out_inv_ps: float = 1 / HBAR_MEV_PS  # output coupling used in input-output relation
+    loss_inv_ps: float = 7e-2 / HBAR_MEV_PS       # γ
+    kappa_out_inv_ps: float = 7e-2 / HBAR_MEV_PS  # output coupling used in input-output relation
     F_s: complex = 1.2 + 0j      # coherent drive amplitude
     psi0: complex = 0.0 + 0.0j   # initial intracavity field
 
@@ -119,11 +119,11 @@ class CavityConfig:
 @dataclass
 class SimulationConfig:
     """Global simulation parameters."""
-    duration_ps: float = 5.0e7        # total simulated time in ps -> resolution in MHz is ~ 1/duration_ps
+    duration_ps: float = 1.0e7        # total simulated time in ps -> resolution in MHz is ~ 1/duration_ps
     dt_ps: float = 1.0              # timestep; sampling rate = 1/dt
     discard_fraction: float = 0.1     # discard initial transient before PSD
     integrator: Literal["rk4", "heun", "euler"] = "rk4"
-    store_every: int = 2040              # downsampling factor for storage/PSD
+    store_every: int = 250              # downsampling factor for storage/PSD
 
 
 @dataclass
@@ -164,8 +164,7 @@ class DetectionConfig:
 
     # Vacuum port for balanced detection
     simulate_vacuum_port: bool = True
-    vacuum_psd: float = 0.1
-    sigma_vac: float = np.sqrt(vacuum_psd*1.0/SimulationConfig.dt_ps * MHZ_PER_INV_PS / 2.0)
+    sigma_vac: float = 0.02
 
 
 @dataclass
@@ -188,17 +187,17 @@ class NoiseConfig:
         RNG seed for reproducibility.
     """
     mode: NoiseMode = "both"
-    cutoff_mhz: float = 100.0  # MHz
+    cutoff_mhz: float = 2000.0  # MHz
     gain_dB: float = 5.0
-    strength_amp: float = DetectionConfig.sigma_vac*10 ** (gain_dB / 20.0)
-    strength_phase: float = DetectionConfig.sigma_vac*10 ** (gain_dB / 20.0)
+    strength_amp: float =  DetectionConfig.sigma_vac*10**(gain_dB/20) # DetectionConfig.sigma_vac*np.sqrt((10 ** (gain_dB / 10.0) - 1))
+    strength_phase: float =  DetectionConfig.sigma_vac*10**(gain_dB/20) # DetectionConfig.sigma_vac*np.sqrt((10 ** (gain_dB / 10.0) - 1))
     seed: int = 12345
 
 
 @dataclass
 class SpectrumConfig:
     """PSD estimation settings."""
-    nperseg: int = 2**13
+    nperseg: int = 2**10
     window: str = "hann"
     detrend: str = "constant"
     average: str = "mean"
@@ -326,7 +325,7 @@ def generate_drive_noise(
             rng=rng,
         )
 
-    F_n = amp + 1j * ph
+    F_n = (amp + 1j * ph) / np.sqrt(2)
     return F_n.astype(np.complex128), {
         "amp_noise": amp,
         "phase_noise": ph,
@@ -343,14 +342,15 @@ def cavity_rhs(
     F: complex,
     detuning_inv_ps: float,
     nonlinearity_inv_ps: float,
+    kappa_out_inv_ps: float,
     loss_inv_ps: float,
 ) -> complex:
     """Right-hand side of dψ/dt.
 
     Starting from
-        i dψ/dt = [ -Δ + U |ψ|^2 - i γ/2 ] ψ + F
+        i dψ/dt = [ -Δ + U |ψ|^2 - i γ/2 ] ψ + ik^0.5*F
     we get
-        dψ/dt = iΔ ψ - iU |ψ|^2 ψ - (γ/2) ψ - iF
+        dψ/dt = iΔ ψ - iU |ψ|^2 ψ - (γ/2) ψ + k^0.5*F
     """
     return (
         1j * detuning_inv_ps * psi
@@ -378,6 +378,7 @@ def integrate_cavity(
             drive,
             detuning_inv_ps=cfg.detuning_inv_ps,
             nonlinearity_inv_ps=cfg.nonlinearity_inv_ps,
+            kappa_out_inv_ps=cfg.kappa_out_inv_ps,
             loss_inv_ps=cfg.loss_inv_ps,
         )
 
@@ -548,18 +549,16 @@ def balanced_homodyne_current(
 def generate_vacuum_field(
     n: int,
     dt_ps: float,
-    vacuum_psd: float,
+    sigma_vac: float, 
     rng: np.random.Generator,
 ) -> ComplexArray:
     """Generate a complex vacuum noise field with a specified PSD.
     This model is useful to produce an realistic ESA trace, but it does not provide
     a rigorous quantum description of the vacuum fluctuations entering the unused port of the beamsplitter.
     """
-    fs_mhz = 1.0/dt_ps * MHZ_PER_INV_PS
-    sigma = math.sqrt(max(vacuum_psd, 0.0) * fs_mhz / 2.0)
 
-    v_re = rng.normal(scale=sigma, size=n)
-    v_im = rng.normal(scale=sigma, size=n)
+    v_re = rng.normal(scale=sigma_vac, size=n)
+    v_im = rng.normal(scale=sigma_vac, size=n)
     return ((v_re + 1j * v_im) / np.sqrt(2.0)).astype(np.complex128)
 
 
@@ -574,7 +573,7 @@ def balanced_current_for_drive_noise(
         v_t = generate_vacuum_field(
             n=F_t.size,
             dt_ps=dt_ps,
-            vacuum_psd=cfg.vacuum_psd,
+            sigma_vac=cfg.sigma_vac,
             rng=rng,
         )
     else:
@@ -588,7 +587,7 @@ def balanced_current_for_drive_noise(
     i1_det_ref = scale * np.abs(b1) ** 2
     i2_det_ref = scale * np.abs(b2) ** 2
 
-    i_plus_det_ref = i1_det_ref + i2_det_ref    
+    i_plus_det_ref = i1_det_ref + i2_det_ref  
     i_minus_det_ref = i1_det_ref - i2_det_ref
 
     return {
@@ -607,10 +606,10 @@ def balanced_direct_detection_currents_without_noise(
         rng: Optional[np.random.Generator] = None,
         dt_ps: Optional[float] = None,
 ) -> Dict[str, Array]:
-    """Balanced detection after BS 50/50 without LO phase control.
+    """Balanced detection after BS 50/50 without LO phase control, with no noise added
     Field on the photodiode :
-        b1 = (s_out + v) / sqrt(2)
-        b2 = (s_out - v) / sqrt(2)
+        b1 = (s_out_wn + v) / sqrt(2)
+        b2 = (s_out_wn - v) / sqrt(2)
     
     Currents :
         i1 = R * |b1|^2
@@ -618,8 +617,8 @@ def balanced_direct_detection_currents_without_noise(
     where R is the responsivity. 
     
     The sum and difference currents are then:
-        i_sum = i1 + i2 = R * (|s_out|^2 + |v|^2)
-        i_diff = i1 - i2 = R * 2 Re[s_out v*]
+        i_sum = i1 + i2 = R * (|s_out_wn|^2 + |v|^2)
+        i_diff = i1 - i2 = R * 2 Re[s_out_wn v*]
     """
     if rng is None:
         rng = np.random.default_rng(2027)
@@ -632,7 +631,7 @@ def balanced_direct_detection_currents_without_noise(
         v_t = generate_vacuum_field(
             n=s_out_without_noise_t.size,
             dt_ps=dt_ps,
-            vacuum_psd=cfg.vacuum_psd,
+            sigma_vac=cfg.sigma_vac,
             rng=rng,
         )
     else:
@@ -814,7 +813,7 @@ def balanced_direct_detection_currents(
         v_t = generate_vacuum_field(
             n=s_out_t.size,
             dt_ps=dt_ps,
-            vacuum_psd=cfg.vacuum_psd,
+            sigma_vac=cfg.sigma_vac,
             rng=rng,
         )
     else:
@@ -1040,10 +1039,11 @@ def run_simulation(cfg: FullConfig) -> Dict[str, np.ndarray]:
 
     # Integrate cavity dynamics
     psi_t = integrate_cavity(t_full, F_t, cfg.cavity, integrator=cfg.sim.integrator)
+    psi_t_wn = integrate_cavity(t_full, np.full(t_full.size, cfg.cavity.F_s), cfg.cavity, integrator=cfg.sim.integrator)
 
     # Compute output field
     s_out_t = output_field(F_t, psi_t, cfg.cavity)
-    s_out_without_noise_t = np.mean(s_out_t)
+    s_out_without_noise_t = output_field(cfg.cavity.F_s, psi_t_wn, cfg.cavity)
 
     rng = np.random.default_rng(cfg.noise.seed + 999)
 
@@ -1412,12 +1412,12 @@ def main() -> None:
     # Plots
     plot_time_traces(results)
     plot_phase_space(results)
-    plot_spectra(results, rbw_mhz=1e5/1e6, fmin_mhz=1e3/1e6, fmax_mhz=1.2e8/1e6)
+    plot_spectra(results, rbw_mhz=10, fmin_mhz=1e3/1e6, fmax_mhz=2000)
 
 
     # Save
-    save_results_npz("polariton_homodyne_results_balanced_both.npz", cfg, results)
-    print("\nSaved results to polariton_homodyne_results_balanced_both.npz")
+    save_results_npz("polariton_homodyne_results_balanced_both_5.npz", cfg, results)
+    print("\nSaved results to polariton_homodyne_results_balanced_both_5.npz")
 
 
 if __name__ == "__main__":

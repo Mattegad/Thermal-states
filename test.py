@@ -144,5 +144,5 @@ import numpy as np
 
 data = np.load(path, allow_pickle=True)
 print(data.files)
-print(data["F_t"]) 
+print(np.mean(np.imag(data["F_t"]))) 
 # %%
