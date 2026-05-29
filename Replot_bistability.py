@@ -214,24 +214,22 @@ def get_primary_detected_channels(
 ) -> Tuple[Optional[np.ndarray], Optional[np.ndarray], str]:
     """
     Returns:
-        det_signal, meas_signal, label
+        meas_signal, label
     """
     mode = get_detection_mode(metadata)
 
     if mode == "homodyne":
-        return results.get("i_det_t"), results.get("i_meas_t"), "homodyne"
+        print("Not the right detection mode")
 
     if mode == "balanced_sum":
-        det = results.get("i_plus_det_t", results.get("i_det_t"))
         meas = results.get("i_plus_meas_t", results.get("i_meas_t"))
-        return det, meas, "i+"
+        return meas, "i+"
 
     if mode == "balanced_diff":
-        det = results.get("i_minus_det_t", results.get("i_det_t"))
         meas = results.get("i_minus_meas_t", results.get("i_meas_t"))
-        return det, meas, "i-"
+        return meas, "i-"
 
-    return results.get("i_det_t"), results.get("i_meas_t"), "detected signal"
+    return results.get("i_meas_t"), "detected signal"
 
 
 # -----------------------------------------------------------------------------
@@ -244,8 +242,6 @@ def build_missing_channels_from_output(
 ) -> Dict[str, np.ndarray]:
     """Reconstruct useful channels if some were not saved."""
     out = dict(results)
-
-    lo_phase_rad = get_lo_phase_from_metadata(metadata)
 
     if "s_out_t" in out:
         z = out["s_out_t"]
@@ -268,17 +264,8 @@ def build_missing_channels_from_output(
             out.setdefault("x_cav", x_cav)
             out.setdefault("p_cav", p_cav)
 
-    if "i_det_t" not in out and "s_out_t" in out:
-        out["i_det_t"] = quadrature_projection(out["s_out_t"], lo_phase_rad)
-
     if "i_meas_t" not in out and "i_det_t" in out:
         out["i_meas_t"] = out["i_det_t"].copy()
-
-    if "freqs_det_mhz" not in out and "i_det_t" in out:
-        fs = infer_sample_rate_mhz(out)
-        f, p = compute_psd(out["i_det_t"], fs_mhz=fs)
-        out["freqs_det_mhz"] = f
-        out["psd_det"] = p
 
     if "freqs_meas_mhz" not in out and "i_meas_t" in out:
         fs = infer_sample_rate_mhz(out)
@@ -485,18 +472,14 @@ def plot_spectra(
     shot_noise_source: str = "measured",
     eps: float = 1e-30
 ) -> plt.Figure:
-    f1 = results["freqs_det_mhz"]
-    p1 = results["psd_det"]
-    f2 = results["freqs_meas_mhz"]
-    p2 = results["psd_meas"]
+    f = results["freqs_meas_mhz"]
+    p = results["psd_meas"]
 
     if rbw_mhz > 0:
-        f1, p1 = rbw_average_psd(f1, p1, rbw_mhz)
-        f2, p2 = rbw_average_psd(f2, p2, rbw_mhz)
+        f, p = rbw_average_psd(f, p, rbw_mhz)
 
-    freqs = f1
-    p1 = np.maximum(p1, eps)
-    p2 = np.maximum(p2, eps)
+    freqs = f
+    p = np.maximum(p, eps)
 
     mask = np.ones_like(freqs, dtype=bool)
     if fmin_mhz is not None:
@@ -510,18 +493,16 @@ def plot_spectra(
 
     if normalize_to_shot_noise:
         if shot_noise_source == "measured":
-            p_ref = p2
+            p_ref = p
             ref_label = "measured PSD"
         elif shot_noise_source == "deterministic":
-            p_ref = p1
+            p_ref = p
             ref_label = "deterministic PSD"
         else:
             raise ValueError(f"Invalid shot noise source: {shot_noise_source}")
         
-    trace_det_db = 10.0 * np.log10(p1 / p_ref)
-    trace_meas_db = 10.0 * np.log10(p2 / p_ref)
+    trace_meas_db = 10.0 * np.log10(p / p_ref)
 
-    plt.plot(freqs[mask], trace_det_db[mask], label=f"{label} PSD / {ref_label}")
     plt.plot(freqs[mask], trace_meas_db[mask], label=f"Measured {label} PSD / {ref_label}", alpha=0.7)
     plt.plot(
         freqs[mask],
@@ -536,25 +517,6 @@ def plot_spectra(
     plt.title("Spectrum analyzer trace")
     plt.grid(True, which="both", alpha=0.3)
     plt.legend()
-    fig.tight_layout()
-    return fig
-
-
-def plot_cumulative_band_power(results: Dict[str, np.ndarray], use_measured: bool = True) -> plt.Figure:
-    f = results["freqs_meas_mhz"] if use_measured else results["freqs_det_mhz"]
-    p = results["psd_meas"] if use_measured else results["psd_det"]
-    df = np.diff(f)
-    if len(df) == 0:
-        raise ValueError("Not enough frequency points.")
-    cum = np.zeros_like(f)
-    cum[1:] = np.cumsum(0.5 * (p[1:] + p[:-1]) * df)
-
-    fig = plt.figure(figsize=(9, 5))
-    plt.plot(f, cum)
-    plt.xlabel("Upper integration frequency (MHz)")
-    plt.ylabel("Integrated noise power")
-    plt.title("Cumulative integrated PSD")
-    plt.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
 
@@ -581,8 +543,8 @@ def plot_all_balanced_psds(
     eps:
         Small value to avoid log of zero when normalizing by shot noise level.
     """
-    needed = ["i_plus_meas_t", "i_minus_meas_t", "i_plus_det_t_wn", "i_minus_det_t_wn"]
-    needed_ref = ["i_plus_det_ref_t", "i_minus_det_ref_t"]
+    needed = ["i_plus_meas_t", "i_minus_meas_t", "i_plus_meas_t_wn", "i_minus_meas_t_wn"]
+    needed_ref = ["i_plus_meas_ref_t", "i_minus_meas_ref_t"]
     if not all(k in results for k in needed):
         return None
     
@@ -609,7 +571,7 @@ def plot_all_balanced_psds(
         raise ValueError(f"Shot noise reference without cavity channel '{shot_noise_channel_ref}' not found among computed PSDs.")
     
     f_ref, p_ref = curves[shot_noise_channel]
-    f_ref_ref, p_ref_ref = curves[shot_noise_channel_ref]
+    _, p_ref_ref = curves[shot_noise_channel_ref]
     p_ref = np.maximum(p_ref, eps)  # avoid zero or negative values
     p_ref_ref = np.maximum(p_ref_ref, eps)
 
@@ -621,10 +583,10 @@ def plot_all_balanced_psds(
         "i2_meas_t": "i2",
         "i_plus_meas_t": "i+",
         "i_minus_meas_t": "i-",
-        "i_plus_det_ref_t": "i+ det ref",
-        "i_minus_det_ref_t": "i- det ref",
-        "i_plus_det_t_wn": "i+ det wn",
-        "i_minus_det_t_wn": "i- det wn",
+        "i_plus_meas_ref_t": "i+ meas ref",
+        "i_minus_meas_ref_t": "i- meas ref",
+        "i_plus_meas_t_wn": "i+ meas wn",
+        "i_minus_meas_t_wn": "i- meas wn",
     }
 
     for key in needed:
@@ -655,7 +617,7 @@ def plot_all_balanced_psds(
 
         plt.plot(f[mask], trace_db[mask], label=pretty_labels.get(key, key))
 
-        if key == "i_plus_det_ref_t":
+        if key == "i_plus_meas_ref_t":
             print(np.mean(trace_db[mask]))
             print(trace_db[mask].size)
 
@@ -779,16 +741,15 @@ def main() -> None:
     # -----------------------
     # CONFIG
     # -----------------------
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("polariton_homodyne_results_balanced_both_7.npz")
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_results_balanced_both_7.npz")
     save_figures = True
-    output_dir = Path("Plots_balanced_both_7")
+    output_dir = Path("Plots/Plots_balanced_both_7")
 
     # Choose what to replot and how
     time_trace = True
     quadratures_vs_time = True
     phase_space = True
     spectra = False
-    cumulative = False
     psds = True
     lo_sweep = False
     bistability = True
@@ -849,8 +810,6 @@ def main() -> None:
         figs["phase_space.png"] = plot_phase_space(results)
     if spectra:
         figs["spectra.png"] = plot_spectra(results, metadata, rbw_mhz=rbw_mhz, fmin_mhz=fmin_mhz, fmax_mhz=fmax_mhz, loglog=loglog)
-    if cumulative:
-        figs["cumulative_band_power.png"] = plot_cumulative_band_power(results, use_measured=True)
     if bistability:
         fig_bistab = plot_bistability(results)
         if fig_bistab is not None:

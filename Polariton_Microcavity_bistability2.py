@@ -406,49 +406,6 @@ def integrate_cavity(
 
     return psi
 
-# -----------------------------------------------------------------------------
-# Noise utilities for detection
-# -----------------------------------------------------------------------------
-
-
-def add_white_noise_from_psd(
-        signal: Array,
-        noise_psd_per_mhz: float,
-        dt_ps: float,
-        rng: np.random.Generator,
-) -> Array:
-    """Add white Gaussian noise to a signal with a specified PSD."""
-    fs_mhz = 1.0 / dt_ps * MHZ_PER_INV_PS
-    sigma = math.sqrt(max(noise_psd_per_mhz, 0.0) * fs_mhz / 2.0)  # Here, sigma is a float
-    noise = rng.normal(scale=sigma, size=signal.size)
-    return signal + noise
-
-
-def add_white_noise_from_local_psd(
-        signal: Array,
-        local_psd_per_mhz: Array,
-        dt_ps: float,
-        rng: np.random.Generator,
-) -> Array:
-    """Add white Gaussian noise with a local PSD that depends on the instantaneous signal value."""
-    fs_mhz = 1.0 / dt_ps * MHZ_PER_INV_PS
-    sigma = np.sqrt(np.maximum(local_psd_per_mhz, 0.0) * fs_mhz / 2.0) # Now sigma is an array of the same shape as signal
-    noise = rng.normal(size=signal.size) * sigma
-    return signal + noise
-
-
-def shot_noise_psd_from_photocurrent(
-        photocurrent: Array,
-        cfg: DetectionConfig,
-) -> Array:
-    """Convert photocurrent to an effective shot-noise PSD in simulation units.
-    
-    Model:
-    PSD_shot_noise = shot_noise_gain_per_current * photocurrent
-    S_shot(MHz) = G_shot * I_photocurrent
-    """
-    return cfg.shot_noise_gain_per_current * np.maximum(photocurrent, 0.0)
-
 
 # -----------------------------------------------------------------------------
 # Input-output and detection
@@ -468,89 +425,9 @@ def output_field(F_t: ComplexArray, psi_t: ComplexArray, cfg: CavityConfig) -> C
     return F_t - np.sqrt(cfg.kappa_out_inv_ps) * psi_t
 
 
-def balanced_homodyne_current(
-    s_out_t: ComplexArray,
-    cfg: DetectionConfig,
-    rng: Optional[np.random.Generator] = None,
-    dt_ps: Optional[float] = None,
-) -> Dict[str, Array]:
-    """Compute the balanced homodyne photocurrent time trace.
-
-    Returns
-    -------
-    i_det : ndarray
-        Deterministic homodyne current (without added detector shot noise).
-    i_meas : ndarray
-        Measured current including optional white shot-noise floor.
-    """
-    if rng is None:
-        rng = np.random.default_rng(2026)
-    if dt_ps is None and cfg.add_shot_noise and cfg.shot_noise_mode == "photocurrent":
-        raise ValueError("dt_ps must be provided when add_shot_noise=True")
-
-    scale = cfg.responsivity * cfg.detection_efficiency
-    beta = cfg.lo_amplitude * np.exp(1j * cfg.lo_phase_rad)
-
-    b1 = (s_out_t + beta) / np.sqrt(2.0)
-    b2 = (s_out_t - beta) / np.sqrt(2.0)
-
-    i1_det = scale * np.abs(b1) ** 2
-    i2_det = scale * np.abs(b2) ** 2
-    i_det = i1_det - i2_det
-
-    i_meas = i_det.copy()
-
-    if cfg.add_shot_noise:
-        if cfg.shot_noise_mode == "fixed":
-            i_meas = add_white_noise_from_psd(
-                i_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-        elif cfg.shot_noise_mode == "photocurrent":
-            shot_ref = i1_det + i2_det
-            if cfg.shot_noise_use_instantaneous_photocurrent:
-                local_psd = shot_noise_psd_from_photocurrent(shot_ref, cfg)
-                i_meas = add_white_noise_from_local_psd(
-                    i_meas,
-                    local_psd_per_mhz=local_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-            else:
-                mean_psd = float(np.mean(shot_noise_psd_from_photocurrent(shot_ref, cfg)))
-                i_meas = add_white_noise_from_psd(
-                    i_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-        elif cfg.shot_noise_mode != "none":
-            raise ValueError(f"Unknown shot noise mode: {cfg.shot_noise_mode}")
-
-        if cfg.electronic_noise_psd_per_mhz > 0.0:
-            i_meas = add_white_noise_from_psd(
-                i_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-
-    return {
-        "beta_lo_t": np.full(s_out_t.shape, beta, dtype=np.complex128),
-        "b1_t": b1,
-        "b2_t": b2,
-        "i_1_det_t": i1_det,
-        "i_2_det_t": i2_det,
-        "i_det_t": i_det,
-        "i_meas_t": i_meas
-    }
-
 
 def generate_vacuum_field(
     n: int,
-    dt_ps: float,
     sigma_vac: float, 
     rng: np.random.Generator,
 ) -> ComplexArray:
@@ -574,7 +451,6 @@ def balanced_current_for_drive_noise(
     if cfg.simulate_vacuum_port:
         v_t = generate_vacuum_field(
             n=F_t.size,
-            dt_ps=dt_ps,
             sigma_vac=cfg.sigma_vac,
             rng=rng,
         )
@@ -586,19 +462,19 @@ def balanced_current_for_drive_noise(
 
     scale = cfg.responsivity * cfg.detection_efficiency
 
-    i1_det_ref = scale * np.abs(b1) ** 2
-    i2_det_ref = scale * np.abs(b2) ** 2
+    i1_meas_ref = scale * np.abs(b1) ** 2
+    i2_meas_ref = scale * np.abs(b2) ** 2
 
-    i_plus_det_ref = i1_det_ref + i2_det_ref  
-    i_minus_det_ref = i1_det_ref - i2_det_ref
+    i_plus_meas_ref = i1_meas_ref + i2_meas_ref  
+    i_minus_meas_ref = i1_meas_ref - i2_meas_ref
 
     return {
         "b1_ref_t": b1,
         "b2_ref_t": b2,
-        "i_1_det_ref_t": i1_det_ref,
-        "i_2_det_ref_t": i2_det_ref,
-        "i_plus_det_ref_t": i_plus_det_ref,
-        "i_minus_det_ref_t": i_minus_det_ref,
+        "i_1_meas_ref_t": i1_meas_ref,
+        "i_2_meas_ref_t": i2_meas_ref,
+        "i_plus_meas_ref_t": i_plus_meas_ref,
+        "i_minus_meas_ref_t": i_minus_meas_ref,
     }
 
 
@@ -632,7 +508,6 @@ def balanced_direct_detection_currents_without_noise(
     if cfg.simulate_vacuum_port:
         v_t = generate_vacuum_field(
             n=s_out_without_noise_t.size,
-            dt_ps=dt_ps,
             sigma_vac=cfg.sigma_vac,
             rng=rng,
         )
@@ -642,141 +517,16 @@ def balanced_direct_detection_currents_without_noise(
     b1 = (s_out_without_noise_t + v_t) / np.sqrt(2.0)
     b2 = (s_out_without_noise_t - v_t) / np.sqrt(2.0)
 
-    i1_det = scale * np.abs(b1) ** 2
-    i2_det = scale * np.abs(b2) ** 2
+    i1_meas = scale * np.abs(b1) ** 2
+    i2_meas = scale * np.abs(b2) ** 2
 
-    i_plus_det = i1_det + i2_det
-    i_minus_det = i1_det - i2_det
-
-    i1_meas = i1_det.copy()
-    i2_meas = i2_det.copy()
-    i_plus_meas = i_plus_det.copy()
-    i_minus_meas = i_minus_det.copy()
-
-    #  If we are simulating the vacuum port, the shot noise is already included
-    # in the generated vacuum field, so we should not add additional noise on top of that.
-    if cfg.add_shot_noise and not cfg.simulate_vacuum_port: 
-        if cfg.shot_noise_mode == "fixed":
-            i1_meas = add_white_noise_from_psd(
-                i1_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i2_meas = add_white_noise_from_psd(
-                i2_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_plus_meas = add_white_noise_from_psd(
-                i_plus_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_minus_meas = add_white_noise_from_psd(
-                i_minus_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-
-        elif cfg.shot_noise_mode == "photocurrent":
-            psd_i1 = shot_noise_psd_from_photocurrent(i1_det, cfg)
-            psd_i2 = shot_noise_psd_from_photocurrent(i2_det, cfg)
-            psd_sumdiff = shot_noise_psd_from_photocurrent(i_plus_det, cfg)  # Approximate shot noise PSD for sum/diff as function of total photocurrent
-
-            if cfg.shot_noise_use_instantaneous_photocurrent:
-                i1_meas = add_white_noise_from_local_psd(
-                    i1_meas,
-                    local_psd_per_mhz=psd_i1,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i2_meas = add_white_noise_from_local_psd(
-                    i2_meas,
-                    local_psd_per_mhz=psd_i2,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_plus_meas = add_white_noise_from_local_psd(
-                    i_plus_meas,
-                    local_psd_per_mhz=psd_sumdiff,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_minus_meas = add_white_noise_from_local_psd(
-                    i_minus_meas,
-                    local_psd_per_mhz=psd_sumdiff,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-
-            else:
-                mean_psd = float(np.mean(shot_noise_psd_from_photocurrent(psd_sumdiff, cfg)))
-                i1_meas = add_white_noise_from_psd(
-                    i1_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i2_meas = add_white_noise_from_psd(
-                    i2_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_plus_meas = add_white_noise_from_psd(
-                    i_plus_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_minus_meas = add_white_noise_from_psd(
-                    i_minus_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-        
-        elif cfg.shot_noise_mode != "none":
-            raise ValueError(f"Unknown shot noise mode: {cfg.shot_noise_mode}")
-        
-        if cfg.electronic_noise_psd_per_mhz > 0.0:
-            i1_meas = add_white_noise_from_psd(
-                i1_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i2_meas = add_white_noise_from_psd(
-                i2_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_plus_meas = add_white_noise_from_psd(
-                i_plus_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_minus_meas = add_white_noise_from_psd(
-                i_minus_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
+    i_plus_meas = i1_meas + i2_meas
+    i_minus_meas = i1_meas - i2_meas
 
     return {
         "vacuum_t_wn": v_t,
         "b1_t_wn": b1,
         "b2_t_wn": b2,
-        "i1_det_t_wn": i1_det,
-        "i2_det_t_wn": i2_det,
-        "i_plus_det_t_wn": i_plus_det,
-        "i_minus_det_t_wn": i_minus_det,
         "i1_meas_t_wn": i1_meas,
         "i2_meas_t_wn": i2_meas,
         "i_plus_meas_t_wn": i_plus_meas,
@@ -814,7 +564,6 @@ def balanced_direct_detection_currents(
     if cfg.simulate_vacuum_port:
         v_t = generate_vacuum_field(
             n=s_out_t.size,
-            dt_ps=dt_ps,
             sigma_vac=cfg.sigma_vac,
             rng=rng,
         )
@@ -824,141 +573,17 @@ def balanced_direct_detection_currents(
     b1 = (s_out_t + v_t) / np.sqrt(2.0)
     b2 = (s_out_t - v_t) / np.sqrt(2.0)
 
-    i1_det = scale * np.abs(b1) ** 2
-    i2_det = scale * np.abs(b2) ** 2
+    i1_meas = scale * np.abs(b1) ** 2
+    i2_meas = scale * np.abs(b2) ** 2
 
-    i_plus_det = i1_det + i2_det
-    i_minus_det = i1_det - i2_det
+    i_plus_meas = i1_meas + i2_meas
+    i_minus_meas = i1_meas - i2_meas
 
-    i1_meas = i1_det.copy()
-    i2_meas = i2_det.copy()
-    i_plus_meas = i_plus_det.copy()
-    i_minus_meas = i_minus_det.copy()
-
-    #  If we are simulating the vacuum port, the shot noise is already included
-    # in the generated vacuum field, so we should not add additional noise on top of that.
-    if cfg.add_shot_noise and not cfg.simulate_vacuum_port: 
-        if cfg.shot_noise_mode == "fixed":
-            i1_meas = add_white_noise_from_psd(
-                i1_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i2_meas = add_white_noise_from_psd(
-                i2_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_plus_meas = add_white_noise_from_psd(
-                i_plus_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_minus_meas = add_white_noise_from_psd(
-                i_minus_meas,
-                noise_psd_per_mhz=cfg.shot_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-
-        elif cfg.shot_noise_mode == "photocurrent":
-            psd_i1 = shot_noise_psd_from_photocurrent(i1_det, cfg)
-            psd_i2 = shot_noise_psd_from_photocurrent(i2_det, cfg)
-            psd_sumdiff = shot_noise_psd_from_photocurrent(i_plus_det, cfg)  # Approximate shot noise PSD for sum/diff as function of total photocurrent
-
-            if cfg.shot_noise_use_instantaneous_photocurrent:
-                i1_meas = add_white_noise_from_local_psd(
-                    i1_meas,
-                    local_psd_per_mhz=psd_i1,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i2_meas = add_white_noise_from_local_psd(
-                    i2_meas,
-                    local_psd_per_mhz=psd_i2,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_plus_meas = add_white_noise_from_local_psd(
-                    i_plus_meas,
-                    local_psd_per_mhz=psd_sumdiff,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_minus_meas = add_white_noise_from_local_psd(
-                    i_minus_meas,
-                    local_psd_per_mhz=psd_sumdiff,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-
-            else:
-                mean_psd = float(np.mean(shot_noise_psd_from_photocurrent(psd_sumdiff, cfg)))
-                i1_meas = add_white_noise_from_psd(
-                    i1_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i2_meas = add_white_noise_from_psd(
-                    i2_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_plus_meas = add_white_noise_from_psd(
-                    i_plus_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-                i_minus_meas = add_white_noise_from_psd(
-                    i_minus_meas,
-                    noise_psd_per_mhz=mean_psd,
-                    dt_ps=dt_ps,
-                    rng=rng,
-                )
-        
-        elif cfg.shot_noise_mode != "none":
-            raise ValueError(f"Unknown shot noise mode: {cfg.shot_noise_mode}")
-        
-        if cfg.electronic_noise_psd_per_mhz > 0.0:
-            i1_meas = add_white_noise_from_psd(
-                i1_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i2_meas = add_white_noise_from_psd(
-                i2_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_plus_meas = add_white_noise_from_psd(
-                i_plus_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
-            i_minus_meas = add_white_noise_from_psd(
-                i_minus_meas,
-                noise_psd_per_mhz=cfg.electronic_noise_psd_per_mhz,
-                dt_ps=dt_ps,
-                rng=rng,
-            )
 
     return {
         "vacuum_t": v_t,
         "b1_t": b1,
         "b2_t": b2,
-        "i1_det_t": i1_det,
-        "i2_det_t": i2_det,
-        "i_plus_det_t": i_plus_det,
-        "i_minus_det_t": i_minus_det,
         "i1_meas_t": i1_meas,
         "i2_meas_t": i2_meas,
         "i_plus_meas_t": i_plus_meas,
@@ -1155,14 +780,6 @@ def run_simulation_with_upper_branch(
     dt_ps = cfg.sim.dt_ps
     fs_mhz = 1.0 / (dt_ps) * MHZ_PER_INV_PS  # Convert to MHz
 
-    # Generate noisy input drive
-    #F_n, noise_aux = generate_drive_noise(t_full, cfg.noise)
-    #F_t = cfg.cavity.F_s + F_n
-
-    # Integrate cavity dynamics
-    #psi_t = integrate_cavity(t_full, F_t, cfg.cavity, integrator=cfg.sim.integrator)
-    #psi_t_wn = integrate_cavity(t_full, np.full(t_full.size, cfg.cavity.F_s), cfg.cavity, integrator=cfg.sim.integrator)
-
     # Prepare upper branch
     psi_upper = prepare_upper_branch(
         cfg,
@@ -1213,16 +830,7 @@ def run_simulation_with_upper_branch(
 
     # Choosed detection scheme
     if cfg.detection.mode == "homodyne":
-        det = balanced_homodyne_current(
-            s_out_t=s_out_t,
-            cfg=cfg.detection,
-            rng=rng,
-            dt_ps=dt_ps,
-            )
-        results.update(det)
-
-        signal_for_psd_det = det["i_det_t"]
-        signal_for_psd_meas = det["i_meas_t"]
+        return("Not implemented yet for homodyne detection. Please choose balanced_sum or balanced_diff.")
 
     elif cfg.detection.mode in ("balanced_sum", "balanced_diff"):
         det = balanced_direct_detection_currents(
@@ -1251,20 +859,17 @@ def run_simulation_with_upper_branch(
         results.update(ref)
 
         if cfg.detection.mode == "balanced_sum":
-            signal_for_psd_det = det["i_plus_det_t"]
             signal_for_psd_meas = det["i_plus_meas_t"]
-            signal_for_psd_ref = ref["i_plus_det_ref_t"]
-            signal_for_psd_det_without_noise = det_without_noise["i_plus_det_t_wn"]
+            signal_for_psd_ref = ref["i_plus_meas_ref_t"]
+            signal_for_psd_det_without_noise = det_without_noise["i_plus_meas_t_wn"]
         else:
-            signal_for_psd_det = det["i_minus_det_t"]
             signal_for_psd_meas = det["i_minus_meas_t"]
-            signal_for_psd_ref = ref["i_minus_det_ref_t"]
-            signal_for_psd_det_without_noise = det_without_noise["i_minus_det_t_wn"]
+            signal_for_psd_ref = ref["i_minus_meas_ref_t"]
+            signal_for_psd_det_without_noise = det_without_noise["i_minus_meas_t_wn"]
         
-        results["i_det_t"] = signal_for_psd_det
         results["i_meas_t"] = signal_for_psd_meas
         results["i_ref_t"] = signal_for_psd_ref
-        results["i_det_without_noise_t"] = signal_for_psd_det_without_noise
+        results["i_meas_without_noise_t"] = signal_for_psd_det_without_noise
   
     else:
         raise ValueError(f"Unknown detection mode: {cfg.detection.mode}")
@@ -1281,14 +886,13 @@ def run_simulation_with_upper_branch(
     fs_store_mhz = fs_mhz / step
 
     # PSDs for the spectrum analyzer trace
-    f_det, psd_det = compute_psd(results["i_det_t"], fs_store_mhz, cfg.spectrum)
     f_meas, psd_meas = compute_psd(results["i_meas_t"], fs_store_mhz, cfg.spectrum)
 
     # PSDs for the drive noise alone (for diagnostics)
     f_drive, psd_drive = compute_psd(results["i_ref_t"], fs_store_mhz, cfg.spectrum)
 
     # PSDs for the spectrum reference (without noise)
-    f_wn, psd_wn = compute_psd(results["i_det_without_noise_t"], fs_store_mhz, cfg.spectrum)
+    f_wn, psd_wn = compute_psd(results["i_meas_without_noise_t"], fs_store_mhz, cfg.spectrum)
 
     # Also compute cavity/output quadratures for diagnostics
     x_in, p_in = complex_to_quadratures(results["F_t"])
@@ -1302,8 +906,6 @@ def run_simulation_with_upper_branch(
         "p_cav": p_cav,
         "x_out": x_out,
         "p_out": p_out,
-        "freqs_det_mhz": f_det,
-        "psd_det": psd_det,
         "freqs_meas_mhz": f_meas,
         "psd_meas": psd_meas,
         "freqs_drive_mhz": f_drive,
@@ -1405,31 +1007,23 @@ def plot_spectra(
     fmax_mhz: Optional[float] = None,
     loglog: bool = False,
 ) -> None:
-    f1 = results["freqs_det_mhz"]
-    p1 = results["psd_det"]
-    f2 = results["freqs_meas_mhz"]
-    p2 = results["psd_meas"]
+    f = results["freqs_meas_mhz"]
+    p = results["psd_meas"]
 
     if rbw_mhz > 0:
-        f1, p1 = rbw_average_psd(f1, p1, rbw_mhz)
-        f2, p2 = rbw_average_psd(f2, p2, rbw_mhz)
+        f, p = rbw_average_psd(f, p, rbw_mhz)
 
-    mask1 = np.ones_like(f1, dtype=bool)
-    mask2 = np.ones_like(f2, dtype=bool)
+    mask = np.ones_like(f, dtype=bool)
     if fmin_mhz is not None:
-        mask1 &= (f1 >= fmin_mhz)
-        mask2 &= (f2 >= fmin_mhz)
+        mask &= (f >= fmin_mhz)
     if fmax_mhz is not None:
-        mask1 &= (f1 <= fmax_mhz)
-        mask2 &= (f2 <= fmax_mhz)
+        mask &= (f <= fmax_mhz)
 
     plt.figure(figsize=(10, 6))
     if loglog:
-        plt.loglog(f1[mask1], p1[mask1], label="Deterministic homodyne PSD")
-        plt.loglog(f2[mask2], p2[mask2], label="Measured PSD (with shot noise)")
+        plt.loglog(f[mask], p[mask], label="Measured PSD (with shot noise)")
     else:
-        plt.semilogy(f1[mask1], p1[mask1], label="Deterministic homodyne PSD")
-        plt.semilogy(f2[mask2], p2[mask2], label="Measured PSD (with shot noise)")
+        plt.semilogy(f[mask], p[mask], label="Measured PSD (with shot noise)")
     plt.xlabel("Analysis frequency (MHz)")
     plt.ylabel("PSD (current units$^2$/MHz)")
     plt.title("Spectrum analyzer trace after balanced homodyne detection")
@@ -1453,79 +1047,6 @@ def clone_config(base_cfg: FullConfig) -> FullConfig:
         spectrum=SpectrumConfig(**asdict(base_cfg.spectrum)),
     )
 
-
-def sweep_lo_phase(
-    base_cfg: FullConfig,
-    phases_rad: Array,
-    F_low: complex,
-    F_high: complex,
-    F_work: complex,
-) -> Dict[str, Array]:
-    """Sweep homodyne phase and record detected variance."""
-
-    vals = []
-
-    for theta in phases_rad:
-        cfg = clone_config(base_cfg)
-
-        cfg.detection.mode = "homodyne"
-        cfg.detection.lo_phase_rad = float(theta)
-
-        res = run_simulation_with_upper_branch(
-            cfg,
-            F_low=F_low,
-            F_high=F_high,
-            F_work=F_work,
-        )
-
-        vals.append(np.var(res["i_det_t"]))
-
-    return {
-        "phases_rad": np.asarray(phases_rad),
-        "var_i_det": np.asarray(vals),
-    }
-
-
-def sweep_noise_strength(
-    base_cfg: FullConfig,
-    strengths: Array,
-    F_low: complex,
-    F_high: complex,
-    F_work: complex,
-    which: Literal["amplitude", "phase"] = "phase",
-) -> Dict[str, Array]:
-    """Sweep noise level and record integrated output PSD."""
-
-    integrated = []
-
-    for s in strengths:
-        cfg = clone_config(base_cfg)
-
-        if which == "phase":
-            cfg.noise.mode = "phase"
-            cfg.noise.strength_phase = float(s)
-            cfg.noise.strength_amp = 0.0
-        else:
-            cfg.noise.mode = "amplitude"
-            cfg.noise.strength_amp = float(s)
-            cfg.noise.strength_phase = 0.0
-
-        res = run_simulation_with_upper_branch(
-            cfg,
-            F_low=F_low,
-            F_high=F_high,
-            F_work=F_work,
-        )
-
-        f = res["freqs_det_mhz"]
-        p = res["psd_det"]
-
-        integrated.append(np.trapz(p, f))
-
-    return {
-        "strengths": np.asarray(strengths),
-        "integrated_psd": np.asarray(integrated),
-    }
 
 
 # -----------------------------------------------------------------------------
@@ -1662,7 +1183,7 @@ def main() -> None:
 
     # Save
     #save_results_npz("/Users/charlotte/Documents/Thermal-states/polariton_homodyne_results_balanced_both_6.npz", cfg, results)
-    save_results_npz("polariton_homodyne_results_balanced_both_7.npz", cfg, results)
+    save_results_npz("Results/polariton_homodyne_results_balanced_both_7.npz", cfg, results)
     print("\nSaved results to polariton_homodyne_results_balanced_both_7.npz")
 
 
