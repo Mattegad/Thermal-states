@@ -15,7 +15,7 @@ import argparse
 from pathlib import Path
 import matplotlib.pyplot as plt
 
-from src.polariton_bistability_core import SimulationResults, ResultPlotter
+from polariton_bistability_core import SimulationResults, ResultPlotter
 
 
 def main() -> None:

@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 import matplotlib.pyplot as plt
 
-from src.polariton_bistability_core import (
+from polariton_bistability_core import (
     FullConfig,
     PumpProtocol,
     BistabilityExperiment,
