@@ -1,11 +1,17 @@
 from __future__ import annotations
 
 """
-Class-based refactor of Polariton_Microcavity_bistability2.py.
+Clean class-based refactor of Polariton_Microcavity_bistability2.py.
 
-This file keeps the same physics, same config dataclasses, and same saved-array
-names as the procedural version, so Replot_bistability.py can still read the
-produced .npz files.
+This version intentionally removes the old global compatibility wrappers.
+Use the object API directly:
+
+    cfg = FullConfig()
+    exp = BistabilityExperiment(cfg, PumpProtocol(...))
+    results = exp.run_full()
+    results.save_npz("Results/my_run.npz", cfg)
+
+The saved-array names are kept compatible with Replot_bistability.py.
 
 Main objects
 ------------
@@ -23,17 +29,13 @@ BalancedDetector
 SpectrumAnalyzer
     Computes Welch PSDs and optional RBW averaging.
 
+SimulationResults
+    Typed wrapper around the saved arrays. It still exports a plain dict for
+    compatibility with Replot_bistability.py.
+
 BistabilityExperiment
     High-level object that prepares the upper branch, runs the noisy dynamics,
-    computes diagnostics/PSDs, and returns a results dict compatible with your
-    old replot script.
-
-Compatibility wrappers are kept at the bottom:
-    run_simulation_with_upper_branch(...)
-    compute_bistability_curve(...)
-    prepare_upper_branch(...)
-    save_results_npz(...)
-so old scripts can progressively migrate to the class API.
+    computes diagnostics/PSDs, and returns a SimulationResults object.
 """
 
 from dataclasses import dataclass, field, asdict
@@ -193,17 +195,65 @@ def _json_safe(obj: Any) -> Any:
     return obj
 
 
-def save_results_npz(path: str | Path, cfg: FullConfig, results: Dict[str, np.ndarray]) -> None:
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    meta = {
+def config_metadata(cfg: FullConfig) -> Dict[str, Any]:
+    return {
         "noise": asdict(cfg.noise),
         "cavity": asdict(cfg.cavity),
         "sim": asdict(cfg.sim),
         "detection": asdict(cfg.detection),
         "spectrum": asdict(cfg.spectrum),
     }
-    np.savez_compressed(path, metadata_json=json.dumps(_json_safe(meta), indent=2), **results)
+
+
+@dataclass
+class SimulationResults:
+    """Container for one simulated trajectory and its derived observables.
+
+    The code internally uses named attributes for the core physical channels,
+    while `extra` stores auxiliary channels such as detector currents, PSDs,
+    bistability sweeps, and metadata arrays.
+
+    `to_dict()` returns the exact flat dictionary expected by your existing
+    Replot_bistability.py script.
+    """
+
+    t_ps: Array
+    F_t: ComplexArray
+    psi_t: ComplexArray
+    s_out_t: ComplexArray
+    s_out_without_noise_t: ComplexArray
+    amp_noise: Array
+    phase_noise: Array
+    extra: Dict[str, np.ndarray] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, np.ndarray]:
+        out: Dict[str, np.ndarray] = {
+            "t_ps": self.t_ps,
+            "F_t": self.F_t,
+            "psi_t": self.psi_t,
+            "s_out_t": self.s_out_t,
+            "s_out_without_noise_t": self.s_out_without_noise_t,
+            "amp_noise": self.amp_noise,
+            "phase_noise": self.phase_noise,
+        }
+        out.update(self.extra)
+        return out
+
+    def __getitem__(self, key: str) -> np.ndarray:
+        return self.to_dict()[key]
+
+    def add(self, **arrays: np.ndarray) -> None:
+        self.extra.update(arrays)
+
+    def save_npz(self, path: str | Path, cfg: FullConfig) -> None:
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        meta = config_metadata(cfg)
+        np.savez_compressed(
+            path,
+            metadata_json=json.dumps(_json_safe(meta), indent=2),
+            **self.to_dict(),
+        )
 
 
 # -----------------------------------------------------------------------------
@@ -477,7 +527,7 @@ class BistabilityExperiment:
         fs_mhz = (1.0 / self.cfg.sim.dt_ps) * MHZ_PER_INV_PS
         return out, fs_mhz / step
 
-    def run_upper_branch(self) -> Dict[str, np.ndarray]:
+    def run_upper_branch(self) -> SimulationResults:
         if self.cfg.detection.mode == "homodyne":
             raise NotImplementedError("Homodyne was not implemented in the original script either. Use balanced_sum or balanced_diff.")
 
@@ -506,7 +556,7 @@ class BistabilityExperiment:
         det_wn = detector.currents(s_out_without_noise_t, suffix="_wn")
         ref = detector.reference_currents_for_drive(F_t)
 
-        results: Dict[str, np.ndarray] = {
+        raw_results: Dict[str, np.ndarray] = {
             "t_ps": t_full,
             "F_t": F_t,
             "psi_t": psi_t,
@@ -515,12 +565,12 @@ class BistabilityExperiment:
             "amp_noise": noise_aux["amp_noise"],
             "phase_noise": noise_aux["phase_noise"],
         }
-        results.update(det)
-        results.update(det_wn)
-        results.update(ref)
-        results.update(detector.select_primary_channels(det, det_wn, ref))
+        raw_results.update(det)
+        raw_results.update(det_wn)
+        raw_results.update(ref)
+        raw_results.update(detector.select_primary_channels(det, det_wn, ref))
 
-        results, fs_store_mhz = self._discard_and_downsample(results)
+        results, fs_store_mhz = self._discard_and_downsample(raw_results)
 
         f_meas, psd_meas = self.spectrum.psd(results["i_meas_t"], fs_store_mhz)
         f_drive, psd_drive = self.spectrum.psd(results["i_ref_t"], fs_store_mhz)
@@ -530,7 +580,20 @@ class BistabilityExperiment:
         x_cav, p_cav = complex_to_quadratures(results["psi_t"])
         x_out, p_out = complex_to_quadratures(results["s_out_t"])
 
-        results.update({
+        extra = {
+            key: value
+            for key, value in results.items()
+            if key not in {
+                "t_ps",
+                "F_t",
+                "psi_t",
+                "s_out_t",
+                "s_out_without_noise_t",
+                "amp_noise",
+                "phase_noise",
+            }
+        }
+        extra.update({
             "x_in": x_in,
             "p_in": p_in,
             "x_cav": x_cav,
@@ -548,129 +611,47 @@ class BistabilityExperiment:
             "F_high": np.array([self.pump.F_high], dtype=np.complex128),
             "F_work": np.array([self.pump.F_work], dtype=np.complex128),
         })
-        return results
 
-    def run_full(self, include_bistability: bool = True, F_values: Optional[Array] = None) -> Dict[str, np.ndarray]:
+        return SimulationResults(
+            t_ps=results["t_ps"],
+            F_t=results["F_t"],
+            psi_t=results["psi_t"],
+            s_out_t=results["s_out_t"],
+            s_out_without_noise_t=results["s_out_without_noise_t"],
+            amp_noise=results["amp_noise"],
+            phase_noise=results["phase_noise"],
+            extra=extra,
+        )
+
+    def run_full(self, include_bistability: bool = True, F_values: Optional[Array] = None) -> SimulationResults:
         results = self.run_upper_branch()
         if include_bistability:
             if F_values is None:
                 F_values = np.linspace(0.0, 3.0, 100)
             bistab = self.compute_bistability_curve(F_values)
-            results.update({
-                "bistab_F_up": bistab["F_up"],
-                "bistab_density_up": bistab["density_up"],
-                "bistab_F_down": bistab["F_down"],
-                "bistab_density_down": bistab["density_down"],
-            })
+            results.add(
+                bistab_F_up=bistab["F_up"],
+                bistab_density_up=bistab["density_up"],
+                bistab_F_down=bistab["F_down"],
+                bistab_density_down=bistab["density_down"],
+            )
         return results
 
-    def save(self, path: str | Path, results: Dict[str, np.ndarray]) -> None:
-        save_results_npz(path, self.cfg, results)
-
-
-# -----------------------------------------------------------------------------
-# Compatibility wrappers: old functional API still works
-# -----------------------------------------------------------------------------
-
-def generate_band_limited_real_gaussian_noise(n: int, dt_ps: float, cutoff_mhz: float, rms: float, rng: np.random.Generator) -> Array:
-    return NoiseGenerator.band_limited_real_gaussian(n, dt_ps, cutoff_mhz, rms, rng)
-
-
-def generate_drive_noise(t: Array, cfg: NoiseConfig) -> Tuple[ComplexArray, Dict[str, Array]]:
-    return NoiseGenerator(cfg).drive_noise(t)
-
-
-def cavity_rhs(
-    psi: complex,
-    F: complex,
-    detuning_inv_ps: float,
-    nonlinearity_inv_ps: float,
-    kappa_out_inv_ps: float,
-    loss_inv_ps: float,
-    cfg: CavityConfig,
-) -> complex:
-    return (
-        1j * detuning_inv_ps * psi
-        - 1j * nonlinearity_inv_ps * (abs(psi) ** 2) * psi
-        - 0.5 * loss_inv_ps * psi
-        + np.sqrt(kappa_out_inv_ps) * F
-    )
-
-
-def integrate_cavity(t: Array, F_t: ComplexArray, cfg: CavityConfig, integrator: str = "rk4") -> ComplexArray:
-    return KerrCavity(cfg, integrator=integrator).integrate(t, F_t)
-
-
-def output_field(F_t: ComplexArray | complex, psi_t: ComplexArray, cfg: CavityConfig) -> ComplexArray:
-    return KerrCavity(cfg).output_field(F_t, psi_t)
-
-
-def generate_vacuum_field(n: int, sigma_vac: float, rng: np.random.Generator) -> ComplexArray:
-    v_re = rng.normal(scale=sigma_vac, size=n)
-    v_im = rng.normal(scale=sigma_vac, size=n)
-    return ((v_re + 1j * v_im) / np.sqrt(2.0)).astype(np.complex128)
-
-
-def balanced_direct_detection_currents(s_out_t: ComplexArray, cfg: DetectionConfig, rng: Optional[np.random.Generator] = None, dt_ps: Optional[float] = None) -> Dict[str, np.ndarray]:
-    det = BalancedDetector(cfg, seed=2027)
-    if rng is not None:
-        det.rng = rng
-    return det.currents(s_out_t, suffix="")
-
-
-def balanced_direct_detection_currents_without_noise(s_out_without_noise_t: ComplexArray, cfg: DetectionConfig, rng: Optional[np.random.Generator] = None, dt_ps: Optional[float] = None) -> Dict[str, np.ndarray]:
-    det = BalancedDetector(cfg, seed=2027)
-    if rng is not None:
-        det.rng = rng
-    return det.currents(s_out_without_noise_t, suffix="_wn")
-
-
-def balanced_current_for_drive_noise(F_t: ComplexArray, cfg: DetectionConfig, rng: Optional[np.random.Generator] = None, dt_ps: Optional[float] = None) -> Dict[str, np.ndarray]:
-    det = BalancedDetector(cfg, seed=2027)
-    if rng is not None:
-        det.rng = rng
-    return det.reference_currents_for_drive(F_t)
-
-
-def compute_psd(x: Array, fs_mhz: float, cfg: SpectrumConfig) -> Tuple[Array, Array]:
-    return SpectrumAnalyzer(cfg).psd(x, fs_mhz)
-
-
-def rbw_average_psd(freqs_mhz: Array, psd: Array, rbw_mhz: float) -> Tuple[Array, Array]:
-    return SpectrumAnalyzer.rbw_average(freqs_mhz, psd, rbw_mhz)
-
-
-def make_square_cycle_drive(t: Array, F_low: complex, F_high: complex, F_work: complex, t_rise_ps: float, t_fall_ps: float) -> ComplexArray:
-    F_t = np.full(t.shape, F_low, dtype=np.complex128)
-    F_t[t >= t_rise_ps] = F_high
-    F_t[t >= t_fall_ps] = F_work
-    return F_t
-
-
-def prepare_upper_branch(cfg: FullConfig, F_low: complex, F_high: complex, F_work: complex) -> complex:
-    pump = PumpProtocol(F_low=F_low, F_high=F_high, F_work=F_work)
-    return BistabilityExperiment(cfg, pump).prepare_upper_branch()
-
-
-def compute_bistability_curve(cfg: FullConfig, F_values: Array, settle_time_ps: float = 2e4) -> Dict[str, Array]:
-    return BistabilityExperiment(cfg).compute_bistability_curve(F_values, settle_time_ps=settle_time_ps)
-
-
-def run_simulation_with_upper_branch(cfg: FullConfig, F_low: complex, F_high: complex, F_work: complex) -> Dict[str, np.ndarray]:
-    pump = PumpProtocol(F_low=F_low, F_high=F_high, F_work=F_work)
-    return BistabilityExperiment(cfg, pump).run_upper_branch()
+    def save(self, path: str | Path, results: SimulationResults) -> None:
+        results.save_npz(path, self.cfg)
 
 
 # -----------------------------------------------------------------------------
 # Lightweight plotting helpers kept for convenience
 # -----------------------------------------------------------------------------
 
-def plot_bistability_from_results(results: Dict[str, np.ndarray]) -> plt.Figure:
+def plot_bistability_from_results(results: SimulationResults | Dict[str, np.ndarray]) -> plt.Figure:
+    data = results.to_dict() if isinstance(results, SimulationResults) else results
     fig = plt.figure(figsize=(7, 5))
-    plt.scatter(results["bistab_F_up"], results["bistab_density_up"], label="Sweep up", marker="x")
-    plt.scatter(results["bistab_F_down"], results["bistab_density_down"], label="Sweep down", marker="+")
-    if "F_work" in results and "psi_t" in results:
-        plt.scatter([np.real(results["F_work"][0])], [np.abs(results["psi_t"][0]) ** 2], s=50, label="Initial state at F_work")
+    plt.scatter(data["bistab_F_up"], data["bistab_density_up"], label="Sweep up", marker="x")
+    plt.scatter(data["bistab_F_down"], data["bistab_density_down"], label="Sweep down", marker="+")
+    if "F_work" in data and "psi_t" in data:
+        plt.scatter([np.real(data["F_work"][0])], [np.abs(data["psi_t"][0]) ** 2], s=50, label="Initial state at F_work")
     plt.xlabel("Pump amplitude F")
     plt.ylabel(r"Intracavity density $|\psi|^2$")
     plt.title("Polariton bistability")
@@ -695,14 +676,14 @@ def main() -> None:
     results = exp.run_full(include_bistability=True, F_values=np.linspace(0.0, 3.0, 100))
 
     print("Input drive quadrature stats:")
-    for k, v in estimate_quadrature_variances(results["F_t"]).items():
+    for k, v in estimate_quadrature_variances(results.F_t).items():
         print(f"  {k:>10s} = {v:.6g}")
     print("\nOutput field quadrature stats:")
-    for k, v in estimate_quadrature_variances(results["s_out_t"]).items():
+    for k, v in estimate_quadrature_variances(results.s_out_t).items():
         print(f"  {k:>10s} = {v:.6g}")
 
     out_path = Path("Results/polariton_homodyne_results_balanced_both_7.npz")
-    exp.save(out_path, results)
+    results.save_npz(out_path, cfg)
     print(f"\nSaved results to {out_path}")
 
     fig = plot_bistability_from_results(results)
