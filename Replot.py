@@ -39,7 +39,7 @@ except Exception:
 
 def json_safe(obj):
     if isinstance(obj, complex):
-        return {"real": obj.real, "imag": obj.imag}
+        return {"__complex__": True, "real": obj.real, "imag": obj.imag}
     if isinstance(obj, dict):
         return {k: json_safe(v) for k, v in obj.items()}
     if isinstance(obj, list):
@@ -116,22 +116,22 @@ def estimate_quadrature_variances_from_complex(z: np.ndarray) -> Dict[str, float
     }
 
 
-def infer_sample_rate_hz(results: Dict[str, np.ndarray]) -> float:
-    if "fs_store_hz" in results:
-        val = results["fs_store_hz"]
+def infer_sample_rate_mhz(results: Dict[str, np.ndarray]) -> float:
+    if "fs_store_mhz" in results:
+        val = results["fs_store_mhz"]
         if np.ndim(val) == 0:
             return float(val)
         return float(np.ravel(val)[0])
-    if "t_s" in results and len(results["t_s"]) > 1:
-        dt = float(results["t_s"][1] - results["t_s"][0])
+    if "t_ps" in results and len(results["t_ps"]) > 1:
+        dt = float(results["t_ps"][1] - results["t_ps"][0])
         return 1.0 / dt
     raise ValueError("Could not infer sample rate from the results file.")
 
 
 def compute_psd(
     x: np.ndarray,
-    fs_hz: float,
-    nperseg: int = 2**14,
+    fs_mhz: float,
+    nperseg: int = 2**13,
     window: str = "hann",
     detrend: str = "constant",
     average: str = "mean",
@@ -139,7 +139,7 @@ def compute_psd(
     if SCIPY_AVAILABLE:
         f, pxx = welch(
             x,
-            fs=fs_hz,
+            fs=fs_mhz,
             window=window,
             nperseg=min(nperseg, len(x)),
             detrend=detrend,
@@ -154,44 +154,45 @@ def compute_psd(
         raise ValueError("Need at least two points to compute a PSD.")
     win = np.hanning(n)
     xw = (x - np.mean(x)) * win
-    norm = fs_hz * np.sum(win**2)
+    norm = fs_mhz * np.sum(win**2)
     Xf = np.fft.rfft(xw)
     pxx = (np.abs(Xf) ** 2) / norm
-    f = np.fft.rfftfreq(n, d=1.0 / fs_hz)
+    f = np.fft.rfftfreq(n, d=1.0 / fs_mhz)
     return f, pxx
 
 
-def rbw_average_psd(freqs_hz: np.ndarray, psd: np.ndarray, rbw_hz: float) -> Tuple[np.ndarray, np.ndarray]:
-    if rbw_hz <= 0 or len(freqs_hz) < 2:
-        return freqs_hz, psd
-    df = freqs_hz[1] - freqs_hz[0]
-    bins = max(1, int(round(rbw_hz / df)))
+def rbw_average_psd(freqs_mhz: np.ndarray, psd: np.ndarray, rbw_mhz: float) -> Tuple[np.ndarray, np.ndarray]:
+    if rbw_mhz <= 0 or len(freqs_mhz) < 2:
+        return freqs_mhz, psd
+    df = freqs_mhz[1] - freqs_mhz[0]
+    bins = max(1, int(round(rbw_mhz / df)))
     if bins <= 1:
-        return freqs_hz, psd
+        return freqs_mhz, psd
     n = (len(psd) // bins) * bins
     if n == 0:
-        return freqs_hz, psd
-    return freqs_hz[:n].reshape(-1, bins).mean(axis=1), psd[:n].reshape(-1, bins).mean(axis=1)
+        return freqs_mhz, psd
+    return freqs_mhz[:n].reshape(-1, bins).mean(axis=1), psd[:n].reshape(-1, bins).mean(axis=1)
 
 
-def integrated_band_power(freqs_hz: np.ndarray, psd: np.ndarray, fmin_hz: Optional[float], fmax_hz: Optional[float]) -> float:
-    mask = np.ones_like(freqs_hz, dtype=bool)
-    if fmin_hz is not None:
-        mask &= freqs_hz >= fmin_hz
-    if fmax_hz is not None:
-        mask &= freqs_hz <= fmax_hz
+def integrated_band_power(freqs_mhz: np.ndarray, psd: np.ndarray, fmin_mhz: Optional[float], fmax_mhz: Optional[float]) -> float:
+    mask = np.ones_like(freqs_mhz, dtype=bool)
+    if fmin_mhz is not None:
+        mask &= freqs_mhz >= fmin_mhz
+    if fmax_mhz is not None:
+        mask &= freqs_mhz <= fmax_mhz
     if not np.any(mask):
         return float("nan")
-    return float(np.trapz(psd[mask], freqs_hz[mask]))
+    return float(np.trapz(psd[mask], freqs_mhz[mask]))
 
 
-def psd_value_at(freqs_hz: np.ndarray, psd: np.ndarray, f0_hz: float) -> float:
-    idx = int(np.argmin(np.abs(freqs_hz - f0_hz)))
+def psd_value_at(freqs_mhz: np.ndarray, psd: np.ndarray, f0_mhz: float) -> float:
+    idx = int(np.argmin(np.abs(freqs_mhz - f0_mhz)))
     return float(psd[idx])
 
 # -----------------------------------------------------------------------------
 # Detection-mode helpers
 # -----------------------------------------------------------------------------
+
 
 def get_detection_mode(metadata: Dict[str, Any]) -> Optional[str]:
     detection = metadata.get("detection", {})
@@ -273,16 +274,16 @@ def build_missing_channels_from_output(
     if "i_meas_t" not in out and "i_det_t" in out:
         out["i_meas_t"] = out["i_det_t"].copy()
 
-    if "freqs_det_hz" not in out and "i_det_t" in out:
-        fs = infer_sample_rate_hz(out)
-        f, p = compute_psd(out["i_det_t"], fs_hz=fs)
-        out["freqs_det_hz"] = f
+    if "freqs_det_mhz" not in out and "i_det_t" in out:
+        fs = infer_sample_rate_mhz(out)
+        f, p = compute_psd(out["i_det_t"], fs_mhz=fs)
+        out["freqs_det_mhz"] = f
         out["psd_det"] = p
 
-    if "freqs_meas_hz" not in out and "i_meas_t" in out:
-        fs = infer_sample_rate_hz(out)
-        f, p = compute_psd(out["i_meas_t"], fs_hz=fs)
-        out["freqs_meas_hz"] = f
+    if "freqs_meas_mhz" not in out and "i_meas_t" in out:
+        fs = infer_sample_rate_mhz(out)
+        f, p = compute_psd(out["i_meas_t"], fs_mhz=fs)
+        out["freqs_meas_mhz"] = f
         out["psd_meas"] = p
 
     return out
@@ -328,10 +329,10 @@ def print_results_summary(results: Dict[str, np.ndarray]) -> None:
 
 def plot_time_traces(
     results: Dict[str, np.ndarray], 
-    metadata : Dict[str, Any],
+    metadata: Dict[str, Any],
     max_points: int = 6000,
 ) -> plt.Figure:
-    t = results["t_s"]
+    t = results["t_ps"]
     n = len(t)
     step = max(1, n // max_points)
     sl = slice(None, None, step)
@@ -382,20 +383,20 @@ def plot_time_traces(
     if mode == "homodyne":
         if "i_det_t" in results:
             axes[row].plot(t[sl] * 1e6, results["i_det_t"][sl], label="i_det(t)")
-        if "i_meas_t" in results and "i_meas_t" in results:
+        if "i_meas_t" in results:
             axes[row].plot(t[sl] * 1e6, results["i_meas_t"][sl], label="i_meas(t)", alpha=0.7)
         axes[row].legend()
         axes[row].set_ylabel("Photocurrent")
-        axes[row].set_xlabel("Time (µs)")
+        axes[row].set_xlabel(f"Time ($\mu$s)")
         axes[row].grid(True, alpha=0.3)
     else:
         if "i1_meas_t" in results:
             axes[row].plot(t[sl] * 1e6, results["i1_meas_t"][sl], label="i1_meas(t)")
         if "i2_meas_t" in results:
-            axes[row].plot(t[sl] * 1e6,         results["i2_meas_t"][sl], label="i2_meas(t)", alpha=0.7)
+            axes[row].plot(t[sl] * 1e6, results["i2_meas_t"][sl], label="i2_meas(t)", alpha=0.7)
         axes[row].legend()
         axes[row].set_ylabel("Diodes currents")
-        axes[row].set_xlabel("Time (µs)")
+        axes[row].set_xlabel(r"Time ($\mu$s)")
         axes[row].grid(True, alpha=0.3)
         row += 1
 
@@ -407,7 +408,7 @@ def plot_time_traces(
     axes[row].set_ylabel("Balanced meas.")
     axes[row].grid(True, alpha=0.3)
 
-    axes[-1].set_xlabel("Time (µs)")
+    axes[-1].set_xlabel(r"Time ($\mu$s)")
     fig.tight_layout()
     return fig
 
@@ -440,7 +441,7 @@ def plot_phase_space(results: Dict[str, np.ndarray], max_points: int = 50000) ->
 
 
 def plot_quadratures_vs_time(results: Dict[str, np.ndarray], max_points: int = 6000) -> plt.Figure:
-    t = results["t_s"]
+    t = results["t_ps"]
     n = len(t)
     step = max(1, n // max_points)
     sl = slice(None, None, step)
@@ -466,7 +467,7 @@ def plot_quadratures_vs_time(results: Dict[str, np.ndarray], max_points: int = 6
         axes[2].plot(t[sl] * 1e6, results["p_out"][sl], label="P_out")
         axes[2].legend()
     axes[2].set_ylabel("Output quadratures")
-    axes[2].set_xlabel("Time (µs)")
+    axes[2].set_xlabel("Time (ps)")
     axes[2].grid(True, alpha=0.3)
 
     fig.tight_layout()
@@ -476,40 +477,62 @@ def plot_quadratures_vs_time(results: Dict[str, np.ndarray], max_points: int = 6
 def plot_spectra(
     results: Dict[str, np.ndarray],
     metadata: Dict[str, Any],
-    rbw_hz: float = 0.0,
-    fmin_hz: Optional[float] = None,
-    fmax_hz: Optional[float] = None,
+    rbw_mhz: float = 0.0,
+    fmin_mhz: Optional[float] = None,
+    fmax_mhz: Optional[float] = None,
     loglog: bool = False,
+    normalize_to_shot_noise: bool = True,
+    shot_noise_source: str = "measured",
+    eps: float = 1e-30
 ) -> plt.Figure:
-    f1 = results["freqs_det_hz"]
+    f1 = results["freqs_det_mhz"]
     p1 = results["psd_det"]
-    f2 = results["freqs_meas_hz"]
+    f2 = results["freqs_meas_mhz"]
     p2 = results["psd_meas"]
 
-    if rbw_hz > 0:
-        f1, p1 = rbw_average_psd(f1, p1, rbw_hz)
-        f2, p2 = rbw_average_psd(f2, p2, rbw_hz)
+    if rbw_mhz > 0:
+        f1, p1 = rbw_average_psd(f1, p1, rbw_mhz)
+        f2, p2 = rbw_average_psd(f2, p2, rbw_mhz)
 
-    mask1 = np.ones_like(f1, dtype=bool)
-    mask2 = np.ones_like(f2, dtype=bool)
-    if fmin_hz is not None:
-        mask1 &= f1 >= fmin_hz
-        mask2 &= f2 >= fmin_hz
-    if fmax_hz is not None:
-        mask1 &= f1 <= fmax_hz
-        mask2 &= f2 <= fmax_hz
+    freqs = f1
+    p1 = np.maximum(p1, eps)
+    p2 = np.maximum(p2, eps)
+
+    mask = np.ones_like(freqs, dtype=bool)
+    if fmin_mhz is not None:
+        mask &= freqs >= fmin_mhz
+    if fmax_mhz is not None:
+        mask &= freqs <= fmax_mhz
 
     _, _, label = get_primary_detected_channels(results, metadata)
 
     fig = plt.figure(figsize=(10, 6))
-    if loglog:
-        plt.loglog(f1[mask1], p1[mask1], label=f"PSD deterministic ({label})")
-        plt.loglog(f2[mask2], p2[mask2], label=f"PSD measured ({label})")
-    else:
-        plt.semilogy(f1[mask1], p1[mask1], label=f"PSD deterministic ({label})")
-        plt.semilogy(f2[mask2], p2[mask2], label=f"PSD measured ({label})")
-    plt.xlabel("Analysis frequency (Hz)")
-    plt.ylabel("PSD (current units²/Hz)")
+
+    if normalize_to_shot_noise:
+        if shot_noise_source == "measured":
+            p_ref = p2
+            ref_label = "measured PSD"
+        elif shot_noise_source == "deterministic":
+            p_ref = p1
+            ref_label = "deterministic PSD"
+        else:
+            raise ValueError(f"Invalid shot noise source: {shot_noise_source}")
+        
+    trace_det_db = 10.0 * np.log10(p1 / p_ref)
+    trace_meas_db = 10.0 * np.log10(p2 / p_ref)
+
+    plt.plot(freqs[mask], trace_det_db[mask], label=f"{label} PSD / {ref_label}")
+    plt.plot(freqs[mask], trace_meas_db[mask], label=f"Measured {label} PSD / {ref_label}", alpha=0.7)
+    plt.plot(
+        freqs[mask],
+        np.zeros(np.count_nonzero(mask)),
+        "--",
+        linewidth=1,
+        label=f"Shot noise level ({shot_noise_source})"
+    )
+
+    plt.xlabel("Analysis frequency (MHz)")
+    plt.ylabel("Noise power (dB)")
     plt.title("Spectrum analyzer trace")
     plt.grid(True, which="both", alpha=0.3)
     plt.legend()
@@ -518,7 +541,7 @@ def plot_spectra(
 
 
 def plot_cumulative_band_power(results: Dict[str, np.ndarray], use_measured: bool = True) -> plt.Figure:
-    f = results["freqs_meas_hz"] if use_measured else results["freqs_det_hz"]
+    f = results["freqs_meas_mhz"] if use_measured else results["freqs_det_mhz"]
     p = results["psd_meas"] if use_measured else results["psd_det"]
     df = np.diff(f)
     if len(df) == 0:
@@ -528,7 +551,7 @@ def plot_cumulative_band_power(results: Dict[str, np.ndarray], use_measured: boo
 
     fig = plt.figure(figsize=(9, 5))
     plt.plot(f, cum)
-    plt.xlabel("Upper integration frequency (Hz)")
+    plt.xlabel("Upper integration frequency (MHz)")
     plt.ylabel("Integrated noise power")
     plt.title("Cumulative integrated PSD")
     plt.grid(True, alpha=0.3)
@@ -538,39 +561,121 @@ def plot_cumulative_band_power(results: Dict[str, np.ndarray], use_measured: boo
 
 def plot_all_balanced_psds(
     results: Dict[str, np.ndarray],
-    rbw_hz: float = 0.0,
-    fmin_hz: Optional[float] = None,
-    fmax_hz: Optional[float] = None,
+    rbw_mhz: float = 10.0,
+    fmin_mhz: Optional[float] = None,
+    fmax_mhz: Optional[float] = None,
     loglog: bool = False,
+    shot_noise_channel: str = "i_minus_det_t_wn",
+    shot_noise_channel_ref: str = "i_minus_det_ref_t",
+    eps: float = 1e-30
 ) -> Optional[Dict[str, plt.Figure]]:
     """
     Plot i1, i2, i+, i- measured PSD's if available.
     Useful only for balanced detection
+
+    Output unit:
+        10*log10(PSD / shot_noise_level) if shot_noise_channel is available and valid
+    
+    Shot_noise_channel:
+        Channel used as shot-noise reference. Default: "i_minus_meas_t"
+    eps:
+        Small value to avoid log of zero when normalizing by shot noise level.
     """
-    needed = ["i1_meas_t", "i2_meas_t", "i_plus_meas_t", "i_minus_meas_t"]
+    needed = ["i_plus_meas_t", "i_minus_meas_t", "i_plus_det_t_wn", "i_minus_det_t_wn"]
+    needed_ref = ["i_plus_det_ref_t", "i_minus_det_ref_t"]
     if not all(k in results for k in needed):
         return None
     
-    fs = infer_sample_rate_hz(results)
+    fs = infer_sample_rate_mhz(results)
 
-    curves = []
-    for key, label in [("i1_meas_t", "i1"), ("i2_meas_t", "i2"), ("i_plus_meas_t", "i+"), ("i_minus_meas_t", "i-")]:
-        f, p = compute_psd(results[key], fs_hz=fs)
-        if rbw_hz > 0:
-            f, p = rbw_average_psd(f, p, rbw_hz)
-        curves.append((f, p, label))
+    # Compute PSDs for all measured balanced channels
+    curves = {}
+    for key in needed:
+        f, p = compute_psd(results[key], fs_mhz=fs)
+        if rbw_mhz > 0:
+            f, p = rbw_average_psd(f, p, rbw_mhz)
+        curves[key] = (f, p)
     
+    for key in needed_ref:
+        f, p = compute_psd(results[key], fs_mhz=fs)
+        if rbw_mhz > 0:
+            f, p = rbw_average_psd(f, p, rbw_mhz)
+        curves[key] = (f, p)
+
+    # Shot-noise reference
+    if shot_noise_channel not in curves:
+        raise ValueError(f"Shot noise reference channel '{shot_noise_channel}' not found among computed PSDs.")
+    if shot_noise_channel_ref not in curves:
+        raise ValueError(f"Shot noise reference without cavity channel '{shot_noise_channel_ref}' not found among computed PSDs.")
+    
+    f_ref, p_ref = curves[shot_noise_channel]
+    f_ref_ref, p_ref_ref = curves[shot_noise_channel_ref]
+    p_ref = np.maximum(p_ref, eps)  # avoid zero or negative values
+    p_ref_ref = np.maximum(p_ref_ref, eps)
+
+    # Plot in dB relative to shot noise level
     fig = plt.figure(figsize=(10, 6))
-    for f, p, label in curves:
+
+    pretty_labels = {
+        "i1_meas_t": "i1",
+        "i2_meas_t": "i2",
+        "i_plus_meas_t": "i+",
+        "i_minus_meas_t": "i-",
+        "i_plus_det_ref_t": "i+ det ref",
+        "i_minus_det_ref_t": "i- det ref",
+        "i_plus_det_t_wn": "i+ det wn",
+        "i_minus_det_t_wn": "i- det wn",
+    }
+
+    for key in needed:
+        f, p = curves[key]
+
+        ratio = np.maximum(p, eps) / p_ref
+        trace_db = 10.0 * np.log10(ratio)
+
         mask = np.ones_like(f, dtype=bool)
-        if fmin_hz is not None:
-            mask &= f >= fmin_hz
-        if fmax_hz is not None:
-            mask &= f <= fmax_hz
-        plt.semilogy(f[mask], p[mask], label=label)
+        if fmin_mhz is not None:
+            mask &= f >= fmin_mhz
+        if fmax_mhz is not None:
+            mask &= f <= fmax_mhz
+
+        plt.plot(f[mask], trace_db[mask], label=pretty_labels.get(key, key))
+
+    for key in needed_ref:
+        f, p = curves[key]
+
+        ratio = np.maximum(p, eps) / p_ref_ref
+        trace_db = 10.0 * np.log10(ratio)
+
+        mask = np.ones_like(f, dtype=bool)
+        if fmin_mhz is not None:
+            mask &= f >= fmin_mhz
+        if fmax_mhz is not None:
+            mask &= f <= fmax_mhz
+
+        plt.plot(f[mask], trace_db[mask], label=pretty_labels.get(key, key))
+
+        if key == "i_plus_det_ref_t":
+            print(np.mean(trace_db[mask]))
+            print(trace_db[mask].size)
+
+    # 0 dB shot-noise reference line
+    mask_ref = np.ones_like(f_ref, dtype=bool)
+    if fmin_mhz is not None:
+        mask_ref &= f_ref >= fmin_mhz
+    if fmax_mhz is not None:
+        mask_ref &= f_ref <= fmax_mhz
     
-    plt.xlabel("Analysis frequency (Hz)")
-    plt.ylabel("PSD (current units²/Hz)")
+    #plt.plot(
+        #f_ref[mask_ref],
+        #np.zeros(np.count_nonzero(mask_ref)),
+        #"--",
+        #linewidth=1,
+        #label=f"Shot noise level ({shot_noise_channel})"
+    #)
+    
+    plt.xlabel("Analysis frequency (MHz)")
+    plt.ylabel("Noise power (dB)")
     plt.title("PSD of balanced detection channels")
     plt.grid(True, which="both", alpha=0.3)
     plt.legend()
@@ -581,7 +686,7 @@ def plot_all_balanced_psds(
 def plot_lo_phase_sweep_from_saved_signal(
     results: Dict[str, np.ndarray],
     n_phases: int = 41,
-    use_psd_at_hz: Optional[float] = None,
+    use_psd_at_mhz: Optional[float] = None,
     band: Optional[Tuple[Optional[float], Optional[float]]] = None,
     nperseg: int = 2**14,
 ) -> plt.Figure:
@@ -589,39 +694,245 @@ def plot_lo_phase_sweep_from_saved_signal(
         raise ValueError("Need s_out_t to reconstruct a LO-phase sweep.")
 
     z = results["s_out_t"]
-    fs = infer_sample_rate_hz(results)
+    fs = infer_sample_rate_mhz(results)
     phases = np.linspace(0.0, 2.0 * np.pi, n_phases)
     values = []
 
     for theta in phases:
         i_theta = quadrature_projection(z, theta)
-        if use_psd_at_hz is None and band is None:
+        if use_psd_at_mhz is None and band is None:
             values.append(float(np.var(i_theta)))
         else:
-            f, p = compute_psd(i_theta, fs_hz=fs, nperseg=nperseg)
-            if use_psd_at_hz is not None:
-                values.append(psd_value_at(f, p, use_psd_at_hz))
+            f, p = compute_psd(i_theta, fs_mhz=fs, nperseg=nperseg)
+            if use_psd_at_mhz is not None:
+                values.append(psd_value_at(f, p, use_psd_at_mhz))
             else:
-                fmin_hz, fmax_hz = band if band is not None else (None, None)
-                values.append(integrated_band_power(f, p, fmin_hz, fmax_hz))
+                fmin_mhz, fmax_mhz = band if band is not None else (None, None)
+                values.append(integrated_band_power(f, p, fmin_mhz, fmax_mhz))
 
     fig = plt.figure(figsize=(8, 5))
     plt.plot(phases, values, marker="o")
     plt.xlabel("LO phase θ (rad)")
-    if use_psd_at_hz is None and band is None:
+    if use_psd_at_mhz is None and band is None:
         plt.ylabel("Var[homodyne current]")
         plt.title("LO phase sweep from saved output field")
-    elif use_psd_at_hz is not None:
-        plt.ylabel(f"PSD at {use_psd_at_hz:.3g} Hz")
+    elif use_psd_at_mhz is not None:
+        plt.ylabel(f"PSD at {use_psd_at_mhz:.3g} MHz")
         plt.title("LO phase sweep at fixed analysis frequency")
     else:
-        fmin_hz, fmax_hz = band if band is not None else (None, None)
+        fmin_mhz, fmax_mhz = band if band is not None else (None, None)
         plt.ylabel("Integrated PSD")
-        plt.title(f"LO phase sweep integrated over {fmin_hz:.3g}–{fmax_hz:.3g} Hz")
+        plt.title(f"LO phase sweep integrated over {fmin_mhz:.3g}–{fmax_mhz:.3g} MHz")
     plt.grid(True, alpha=0.3)
     fig.tight_layout()
     return fig
 
+
+def plot_bistability(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
+    needed = [
+        "bistab_F_up",
+        "bistab_density_up",
+        "bistab_F_down",
+        "bistab_density_down",
+    ]
+
+    if not all(k in results for k in needed):
+        print("No bistability data found in saved results.")
+        return None
+
+    fig = plt.figure(figsize=(7, 5))
+
+    plt.scatter(np.real(results["bistab_F_up"]), results["bistab_density_up"],
+                label="Sweep up", marker="x")
+    plt.scatter(np.real(results["bistab_F_down"]), results["bistab_density_down"],
+                label="Sweep down", marker="+")
+
+    if "F_work" in results:
+        F_work = np.real(results["F_work"][0])
+
+        if "rho_work" in results:
+            rho_work = float(results["rho_work"][0])
+        elif "psi_t" in results:
+            rho_work = float(np.mean(np.abs(results["psi_t"])**2))
+        else:
+            rho_work = np.nan
+
+    plt.scatter(
+        [F_work],
+        [rho_work],
+        s=60,
+        color="red",
+        label="Working point",
+        zorder=5,
+    )
+
+    plt.xlabel("Pump amplitude F")
+    plt.ylabel(r"Intracavity density $|\psi|^2$")
+    plt.title("Polariton bistability")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    fig.tight_layout()
+    return fig
+
+def plot_kerneldensityestimation(
+    results,
+    gridsize=300,
+    cmap="magma",
+    remove_mean=True,
+):
+    from scipy.stats import gaussian_kde
+
+    datasets = [
+        ("Input", results["x_in"], results["p_in"], "X_in", "P_in"),
+        ("Intracavity", results["x_cav"], results["p_cav"], "X_cav", "P_cav"),
+        ("Output", results["x_out"], results["p_out"], "X_out", "P_out"),
+    ]
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5), constrained_layout=True)
+
+    last_im = None
+
+    for ax, (title, x, p, xlabel, ylabel) in zip(axes, datasets):
+        x = np.asarray(x, dtype=float)
+        p = np.asarray(p, dtype=float)
+
+        if remove_mean:
+            x = x - np.mean(x)
+            p = p - np.mean(p)
+
+        values = np.vstack([x, p])
+
+        try:
+            kde = gaussian_kde(values)
+        except np.linalg.LinAlgError:
+            values = values + 1e-8 * np.random.normal(size=values.shape)
+            kde = gaussian_kde(values)
+
+        x_min, x_max = np.percentile(x, [0.5, 99.5])
+        p_min, p_max = np.percentile(p, [0.5, 99.5])
+
+        # évite extent nul si P_in est constant
+        if abs(x_max - x_min) < 1e-12:
+            x_min -= 1e-6
+            x_max += 1e-6
+        if abs(p_max - p_min) < 1e-12:
+            p_min -= 1e-6
+            p_max += 1e-6
+
+        X, P = np.meshgrid(
+            np.linspace(x_min, x_max, gridsize),
+            np.linspace(p_min, p_max, gridsize),
+        )
+
+        positions = np.vstack([X.ravel(), P.ravel()])
+        density = kde(positions).reshape(X.shape)
+        density /= np.max(density)
+
+        last_im = ax.imshow(
+            density,
+            origin="lower",
+            extent=[x_min, x_max, p_min, p_max],
+            aspect="auto",
+            cmap=cmap,
+            interpolation="bilinear",
+            vmin=0,
+            vmax=1,
+        )
+
+        ax.set_title(title, fontsize=20)
+        ax.set_xlabel(xlabel, fontsize=16)
+        ax.set_ylabel(ylabel, fontsize=16)
+
+    cbar = fig.colorbar(last_im, ax=axes, shrink=0.95, pad=0.02)
+    cbar.set_label("Normalized density", fontsize=14)
+
+    plt.show()
+
+def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
+
+    needed = [
+        "transfer_var_xin",
+        "transfer_var_xout",
+        "transfer_var_pout",
+    ]
+
+    if not all(k in results for k in needed):
+        print("No transfer scan data found.")
+        return None
+
+    fig = plt.figure(figsize=(8, 5))
+
+    plt.plot(
+        results["transfer_var_xin"],
+        results["transfer_var_xout"],
+        "o",
+        ms=4,
+        label=r"$X_{in}\rightarrow X_{out}$"
+    )
+
+    plt.plot(
+        results["transfer_var_xin"],
+        results["transfer_var_pout"],
+        "o",
+        ms=4,
+        label=r"$X_{in}\rightarrow P_{out}$"
+    )
+
+    plt.xlabel(r"Var($X_{in}$)")
+    plt.ylabel("Output variance")
+    plt.title("Output noise versus input amplitude noise")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+
+    fig.tight_layout()
+    return fig
+
+
+def plot_transfer_gain(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
+
+    needed = [
+        "transfer_gains_dB",
+        "transfer_G_Xin_to_Xout",
+        "transfer_G_Xin_to_Pout",
+    ]
+
+    if not all(k in results for k in needed):
+        print("No transfer gain data found.")
+        return None
+
+    fig = plt.figure(figsize=(8, 5))
+
+    plt.plot(
+        results["transfer_gains_dB"],
+        results["transfer_G_Xin_to_Xout"],
+        "o",
+        ms=4,
+        label=r"$G_{X\to X}$"
+    )
+
+    plt.plot(
+        results["transfer_gains_dB"],
+        results["transfer_G_Xin_to_Pout"],
+        "o",
+        ms=4,
+        label=r"$G_{X\to P}$"
+    )
+
+    plt.axvline(
+        5,
+        linestyle="--",
+        alpha=0.7,
+        label="experiment: 5 dB"
+    )
+
+    plt.xlabel("Input amplitude noise gain (dB)")
+    plt.ylabel("Variance transfer gain")
+    plt.title("Transfer gain versus input noise gain")
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+
+    fig.tight_layout()
+    return fig
 
 # -----------------------------------------------------------------------------
 # Saving figures
@@ -640,30 +951,48 @@ def main() -> None:
     # -----------------------
     # CONFIG
     # -----------------------
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("polariton_homodyne_results.npz")
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_results_balanced_both_9.npz")
     save_figures = True
-    output_dir = Path("Plots")
+    output_dir = Path("Plots_balanced_both_9")
+
+    # Choose what to replot and how
+    time_trace = False
+    quadratures_vs_time = False
+    phase_space = False
+    spectra = False
+    cumulative = False
+    psds = False
+    lo_sweep = False
+    bistability = True
+    kde_plot = False
+    transfer_noise = True
+    transfer_gain = True
 
     # spectrum display choices
-    fmin_hz = 1e3
-    fmax_hz = 1.2e8
-    rbw_hz = 3e4
+    fmin_mhz = 1e-3
+    fmax_mhz = 2000.0
+    rbw_mhz = 4.0
     loglog = False
 
     # LO phase sweep replot choices
     lo_sweep_phases = 41
-    lo_sweep_use_psd_at_hz = 1e6      # set to None to disable fixed-frequency PSD mode
+    lo_sweep_use_psd_at_mhz = 1      # set to None to disable fixed-frequency PSD mode
     lo_sweep_band = None              # example: (5e5, 2e6). If not None, used instead of var().
 
     # -----------------------
     # Load
     # -----------------------
     metadata, results = load_results_npz(input_path)
-    results = build_missing_channels_from_output(results)
 
+    # Add the path to the metadata for provenance
+    metadata.setdefault("replot_info", {})
+    metadata["replot_info"]["source_file"] = str(input_path.resolve())
+    results = build_missing_channels_from_output(results, metadata)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
     meta_path = output_dir / "metadata_replot.json"
 
-    with open(meta_path, "w") as f:
+    with open(meta_path, "w", encoding="utf-8") as f:
         json.dump(json_safe(metadata), f, indent=2)
 
     print(f"Metadata saved to {meta_path}")
@@ -686,43 +1015,63 @@ def main() -> None:
     # Replots
     # -----------------------
     figs: Dict[str, plt.Figure] = {}
-    figs["01_time_traces.png"] = plot_time_traces(results)
-    figs["02_quadratures_vs_time.png"] = plot_quadratures_vs_time(results)
-    figs["03_phase_space.png"] = plot_phase_space(results)
-    figs["04_spectra.png"] = plot_spectra(results, metadata, rbw_hz=rbw_hz, fmin_hz=fmin_hz, fmax_hz=fmax_hz, loglog=loglog)
-    figs["05_cumulative_band_power.png"] = plot_cumulative_band_power(results, use_measured=True)
 
-    balanced_psd_fig = plot_all_balanced_psds(results, rbw_hz=rbw_hz, fmin_hz=fmin_hz, fmax_hz=fmax_hz)
+    if time_trace:
+        figs["time_traces.png"] = plot_time_traces(results, metadata)
+    if quadratures_vs_time:
+        figs["quadratures_vs_time.png"] = plot_quadratures_vs_time(results)
+    if phase_space:
+        figs["phase_space.png"] = plot_phase_space(results)
+    if spectra:
+        figs["spectra.png"] = plot_spectra(results, metadata, rbw_mhz=rbw_mhz, fmin_mhz=fmin_mhz, fmax_mhz=fmax_mhz, loglog=loglog)
+    if cumulative:
+        figs["cumulative_band_power.png"] = plot_cumulative_band_power(results, use_measured=True)
+    if bistability:
+        fig_bistab = plot_bistability(results)
+        if fig_bistab is not None:
+            figs["bistability.png"] = fig_bistab
+    if kde_plot:
+        figs["quadrature_kde.png"] = plot_kerneldensityestimation(
+            results,
+            remove_mean=True
+        )
+    if transfer_noise:
+        fig_transfer_noise = plot_output_noise_vs_input_noise(results)
+        if fig_transfer_noise is not None:
+            figs["output_noise_vs_input_noise.png"] = fig_transfer_noise
 
-    if balanced_psd_fig is not None:
-        figs["06_balanced_psds.png"] = balanced_psd_fig
-        next_index = 7
-    else:
-        next_index = 6
+    if transfer_gain:
+        fig_transfer_gain = plot_transfer_gain(results)
+        if fig_transfer_gain is not None:
+            figs["transfer_gain.png"] = fig_transfer_gain
 
-    if "s_out_t" in results:
-        figs[f"0{next_index:02d}_lo_phase_sweep_var.png"] = plot_lo_phase_sweep_from_saved_signal(
+
+    balanced_psd_fig = plot_all_balanced_psds(results, rbw_mhz=rbw_mhz, fmin_mhz=fmin_mhz, fmax_mhz=fmax_mhz, loglog=loglog)
+
+    if balanced_psd_fig is not None and psds:
+        figs["balanced_psds.png"] = balanced_psd_fig
+
+    if "s_out_t" in results and lo_sweep:
+        figs["lo_phase_sweep_var.png"] = plot_lo_phase_sweep_from_saved_signal(
             results,
             n_phases=lo_sweep_phases,
-            use_psd_at_hz=None,
+            use_psd_at_mhz=None,
             band=None,
         )
-        next_index += 1
 
-        if lo_sweep_use_psd_at_hz is not None:
-            figs[f"0{next_index:02d}_lo_phase_sweep_psd_fixed_freq.png"] = plot_lo_phase_sweep_from_saved_signal(
+        if lo_sweep_use_psd_at_mhz is not None:
+            figs["lo_phase_sweep_psd_fixed_freq.png"] = plot_lo_phase_sweep_from_saved_signal(
                 results,
                 n_phases=lo_sweep_phases,
-                use_psd_at_hz=lo_sweep_use_psd_at_hz,
+                use_psd_at_mhz=lo_sweep_use_psd_at_mhz,
                 band=None,
             )
-            next_index += 1
 
         if lo_sweep_band is not None:
-            figs[f"0{next_index:02d}_lo_phase_sweep_psd_band.png"] = plot_lo_phase_sweep_from_saved_signal(
+            figs["lo_phase_sweep_psd_band.png"] = plot_lo_phase_sweep_from_saved_signal(
                 results,
                 n_phases=lo_sweep_phases,
-                use_psd_at_hz=None,
+                use_psd_at_mhz=None,
                 band=lo_sweep_band,
             )
 
