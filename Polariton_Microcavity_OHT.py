@@ -679,7 +679,7 @@ def rbw_average_psd(
 def compute_bistability_curve(
     cfg: FullConfig,
     F_values: Array,
-    settle_time_ps: float = 2e4,
+    settle_time_ps: float = 4e2,
 ) -> Dict[str, Array]:
     """Compute hysteresis curve by sweeping pump amplitude up and down."""
 
@@ -1274,9 +1274,9 @@ def sweep_input_amplitude_gain(
     for g in gains_dB:
         cfg = clone_config(base_cfg)
 
-        cfg.noise.mode = "amplitude"
+        cfg.noise.mode = "phase"
         cfg.noise.strength_phase = 0.0
-        set_input_noise_gain(cfg, gain_dB_amp=float(g))
+        set_input_noise_gain(cfg, gain_dB_phase=float(g))
 
         res = run_simulation_with_upper_branch(
             cfg,
@@ -1520,8 +1520,8 @@ def main() -> None:
 
     # Save
     #save_results_npz("/Users/charlotte/Documents/Thermal-states/polariton_homodyne_results_balanced_both_6.npz", cfg, results)
-    save_results_npz("Results/polariton_homodyne_results_balanced_both_9.npz", cfg, results)
-    print("\nSaved results to Results/polariton_homodyne_results_balanced_both_9.npz")
+    save_results_npz("Results/polariton_homodyne_results_sweep_phase_noise.npz", cfg, results)
+    print("\nSaved results to Results/polariton_homodyne_results_sweep_phase_noise.npz")
 
 
 if __name__ == "__main__":

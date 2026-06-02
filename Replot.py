@@ -951,20 +951,20 @@ def main() -> None:
     # -----------------------
     # CONFIG
     # -----------------------
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_results_balanced_both_9.npz")
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_results_sweep_phase_noise.npz")
     save_figures = True
-    output_dir = Path("Plots_balanced_both_9")
+    output_dir = Path("Plots/polariton_homodyne_results_sweep_phase_noise")
 
     # Choose what to replot and how
-    time_trace = False
-    quadratures_vs_time = False
+    time_trace = True
+    quadratures_vs_time = True
     phase_space = False
     spectra = False
     cumulative = False
     psds = False
     lo_sweep = False
     bistability = True
-    kde_plot = False
+    kde_plot = True
     transfer_noise = True
     transfer_gain = True
 
