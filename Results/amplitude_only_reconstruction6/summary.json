@@ -1,0 +1,195 @@
+{
+  "working_point": {
+    "F_low": 0.11139240506329114,
+    "F_high": 1.0936708860759492,
+    "F_work": 0.8759493670886076,
+    "F_left": 0.5569620253164557,
+    "F_right": 0.9113924050632911,
+    "upper_branch": true
+  },
+  "summary": {
+    "amplitude": {
+      "r2_Var_X_in": 0.9942166830233268,
+      "r2_Var_P_in": 1.0,
+      "r2_Cov_XP_in": 1.0,
+      "rmse_Var_X_in": 0.0016238870948421576,
+      "rmse_Var_P_in": 0.0,
+      "rmse_Cov_XP_in": 0.0,
+      "n_train": 100,
+      "n_test": 50,
+      "ridge_alpha": 0.01,
+      "measurement_channel": "i_plus",
+      "feature_names": [
+        "mean",
+        "var",
+        "total_power"
+      ],
+      "target_names": [
+        "Var_X_in",
+        "Var_P_in",
+        "Cov_XP_in"
+      ],
+      "ridge_coef_labeled": {
+        "Var_X_in": {
+          "mean": -0.0007330922030965501,
+          "var": 0.039739165994304736,
+          "total_power": -0.0055288808194183985
+        },
+        "Var_P_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        },
+        "Cov_XP_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        }
+      },
+      "ridge_importance_label": {
+        "Var_X_in": {
+          "mean": 0.015936392419076947,
+          "var": 0.8638735223441892,
+          "total_power": 0.12019008523673379
+        },
+        "Var_P_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        },
+        "Cov_XP_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        }
+      },
+      "ridge_intercept": [
+        0.02430695484497156,
+        0.0,
+        0.0
+      ]
+    },
+    "phase": {
+      "r2_Var_X_in": 1.0,
+      "r2_Var_P_in": 0.9928301254155636,
+      "r2_Cov_XP_in": 1.0,
+      "rmse_Var_X_in": 0.0,
+      "rmse_Var_P_in": 0.0018081027716411611,
+      "rmse_Cov_XP_in": 0.0,
+      "n_train": 100,
+      "n_test": 50,
+      "ridge_alpha": 0.01,
+      "measurement_channel": "i_plus",
+      "feature_names": [
+        "mean",
+        "var",
+        "total_power"
+      ],
+      "target_names": [
+        "Var_X_in",
+        "Var_P_in",
+        "Cov_XP_in"
+      ],
+      "ridge_coef_labeled": {
+        "Var_X_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        },
+        "Var_P_in": {
+          "mean": 0.0359622231657636,
+          "var": -0.0009505787516341857,
+          "total_power": -0.0010466248235563244
+        },
+        "Cov_XP_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        }
+      },
+      "ridge_importance_label": {
+        "Var_X_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        },
+        "Var_P_in": {
+          "mean": 0.947385834121785,
+          "var": 0.025041968049760197,
+          "total_power": 0.02757219782845481
+        },
+        "Cov_XP_in": {
+          "mean": 0.0,
+          "var": 0.0,
+          "total_power": 0.0
+        }
+      },
+      "ridge_intercept": [
+        0.0,
+        0.02430695484497196,
+        0.0
+      ]
+    },
+    "both": {
+      "r2_Var_X_in": 0.9986054612449742,
+      "r2_Var_P_in": 0.23996963423358442,
+      "r2_Cov_XP_in": 0.00482831100443426,
+      "rmse_Var_X_in": 0.0010524639618191183,
+      "rmse_Var_P_in": 0.03007386900454119,
+      "rmse_Cov_XP_in": 0.01744010461960595,
+      "n_train": 100,
+      "n_test": 50,
+      "ridge_alpha": 0.01,
+      "measurement_channel": "i_plus",
+      "feature_names": [
+        "mean",
+        "var",
+        "total_power"
+      ],
+      "target_names": [
+        "Var_X_in",
+        "Var_P_in",
+        "Cov_XP_in"
+      ],
+      "ridge_coef_labeled": {
+        "Var_X_in": {
+          "mean": -0.0007071225613358511,
+          "var": 0.03526515652421537,
+          "total_power": -0.0029643741675779546
+        },
+        "Var_P_in": {
+          "mean": 0.017979740975830133,
+          "var": 0.02498821667772348,
+          "total_power": -0.03549165745748691
+        },
+        "Cov_XP_in": {
+          "mean": 0.0014175890534951316,
+          "var": 0.02050622875535626,
+          "total_power": -0.021962497308310826
+        }
+      },
+      "ridge_importance_label": {
+        "Var_X_in": {
+          "mean": 0.018160845944791688,
+          "var": 0.9057058986285951,
+          "total_power": 0.07613325542661323
+        },
+        "Var_P_in": {
+          "mean": 0.2291591789022184,
+          "var": 0.31848507850005037,
+          "total_power": 0.45235574259773126
+        },
+        "Cov_XP_in": {
+          "mean": 0.03230139166869282,
+          "var": 0.46725792996316245,
+          "total_power": 0.5004406783681448
+        }
+      },
+      "ridge_intercept": [
+        0.023973812220576485,
+        0.021767103852138817,
+        -0.0017841712160933823
+      ]
+    }
+  }
+}

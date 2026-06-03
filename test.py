@@ -319,3 +319,18 @@ plt.ylabel("Intracavity Field")
 plt.title("Cavity Dynamics")
 plt.legend()
 # %%
+from dataclasses import dataclass, field, asdict
+@dataclass
+class SimConfig:
+    duration_ps: float = 2.0e5
+    dt_ps: float = 2.0
+    discard_fraction: float = 0.25
+    seed: int = 1234
+
+from wigner_reconstruction_polariton import time_axis
+t = time_axis(SimConfig)
+print(t)
+# %%
+from Polariton_Microcavity_OHT import HBAR_MEV_PS
+print(HBAR_MEV_PS)
+# %%

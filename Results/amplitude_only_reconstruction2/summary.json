@@ -1,0 +1,36 @@
+{
+  "working_point": {
+    "F_low": 0.11139240506329114,
+    "F_high": 1.0936708860759492,
+    "F_work": 0.8759493670886076,
+    "F_left": 0.5569620253164557,
+    "F_right": 0.9113924050632911,
+    "upper_branch": true
+  },
+  "summary": {
+    "amplitude": {
+      "r2_Var_X_in": 0.9932645062617845,
+      "r2_Var_P_in": 1.0,
+      "r2_Cov_XP_in": 1.0,
+      "rmse_Var_X_in": 0.0027583291590441415,
+      "rmse_Var_P_in": 0.0,
+      "rmse_Cov_XP_in": 0.0
+    },
+    "phase": {
+      "r2_Var_X_in": 1.0,
+      "r2_Var_P_in": 0.9492358296503638,
+      "r2_Cov_XP_in": 1.0,
+      "rmse_Var_X_in": 0.0,
+      "rmse_Var_P_in": 0.007572512842390604,
+      "rmse_Cov_XP_in": 0.0
+    },
+    "both": {
+      "r2_Var_X_in": 0.7500606732834579,
+      "r2_Var_P_in": 0.40359200091486824,
+      "r2_Cov_XP_in": -19.395697375940966,
+      "rmse_Var_X_in": 0.012824292475647188,
+      "rmse_Var_P_in": 0.026464073822607306,
+      "rmse_Cov_XP_in": 0.0434787223882851
+    }
+  }
+}
