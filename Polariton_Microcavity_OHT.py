@@ -120,7 +120,7 @@ class CavityConfig:
 @dataclass
 class SimulationConfig:
     """Global simulation parameters."""
-    duration_ps: float = 1.0e6        # total simulated time in ps -> resolution in MHz is ~ 1/duration_ps
+    duration_ps: float = 1.0e4        # total simulated time in ps -> resolution in MHz is ~ 1/duration_ps
     dt_ps: float = 1.0              # timestep; sampling rate = 1/dt
     discard_fraction: float = 0.1     # discard initial transient before PSD
     integrator: Literal["rk4", "heun", "euler"] = "rk4"
@@ -187,7 +187,7 @@ class NoiseConfig:
     seed:
         RNG seed for reproducibility.
     """
-    mode: NoiseMode = "amplitude"
+    mode: NoiseMode = "phase"
     cutoff_mhz: float = 2000.0  # MHz
     gain_dB_amp: float = 5.0
     gain_dB_phase: float = 5.0
@@ -359,7 +359,7 @@ def cavity_rhs(
         1j * detuning_inv_ps * psi
         - 1j * nonlinearity_inv_ps * (abs(psi) ** 2) * psi
         - 0.5 * loss_inv_ps * psi
-        + np.sqrt(cfg.kappa_out_inv_ps) * F
+        + np.sqrt(kappa_out_inv_ps) * F
     )
 
 
