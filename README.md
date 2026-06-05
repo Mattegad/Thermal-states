@@ -27,10 +27,10 @@ source .venv/bin/activate       # Linux/macOS
 ## 🧱 Project organization
 
 **Principal functions**
--`Polariton_Microcavity_OHT.py` → Generate the thermal squeezed states, evolve them in the reservoir and compute the desire features
--`Replot.py` → Replot the saved results 
--`Amplitude_only_reconstruction_from_OHT.py` → Generate a set of test states, train a model and reconstruct the state parameters of test states
--`Replot_amplitude_only.py` → Replot the predictions of the training 
+- `Polariton_Microcavity_OHT.py` → Generate the thermal squeezed states, evolve them in the reservoir and compute the desire features
+- `Replot.py` → Replot the saved results 
+- `Amplitude_only_reconstruction_from_OHT.py` → Generate a set of test states, train a model and reconstruct the state parameters of test states
+- `Replot_amplitude_only.py` → Replot the predictions of the training 
 
 ---
 
