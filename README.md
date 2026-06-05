@@ -48,5 +48,5 @@ Verify the **licence** for use and distribution.
 
 ## Physical model 
 
-The theoretical model is explained in https://www.overleaf.com/project/69d64d681d5eb6b6412e623d
+The theoretical model is explained in https://www.overleaf.com/project/69d64d681d5eb6b6412e623d. You can send an email to matteo.gadani@lkb.upmc.fr for permission.
 
