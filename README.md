@@ -27,4 +27,24 @@ source .venv/bin/activate       # Linux/macOS
 ## 🧱 Project organization
 
 **Principal functions**
--'Polariton_Microcavity_OHT.py'
+-`Polariton_Microcavity_OHT.py` → Generate the thermal squeezed states, evolve them in the reservoir and compute the desire features
+-`Replot.py` → Replot the saved results 
+-`Amplitude_only_reconstruction_from_OHT.py` → Generate a set of test states, train a model and reconstruct the state parameters of test states
+-`Replot_amplitude_only.py` → Replot the predictions of the training 
+
+---
+
+## 🙏 Credits
+This project has been developed by Matteo Gadani at the Laboratoire Kastler Brossel.
+We thank Wouter Verstraelen et al. for the first results. Their contributions were essential to the development of this code.
+
+---
+
+## 📘 Licence & context  
+This project illustrates the **quantum states tomography** via simulations and reservoir computing. It complements an experiment done in the LKB where we aim at recognizing quantum states with an exciton polariton reservoir.
+Verify the **licence** for use and distribution.  
+
+---
+
+## Physical model 
+
