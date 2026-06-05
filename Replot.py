@@ -348,33 +348,33 @@ def plot_time_traces(
 
     if "amp_noise" in results or "phase_noise" in results:
         if "amp_noise" in results:
-            axes[row].plot(t[sl] * 1e6, results["amp_noise"][sl], label="Amplitude noise")
+            axes[row].plot(t[sl], results["amp_noise"][sl], label="Amplitude noise")
         if "phase_noise" in results:
-            axes[row].plot(t[sl] * 1e6, results["phase_noise"][sl], label="Phase noise")
+            axes[row].plot(t[sl], results["phase_noise"][sl], label="Phase noise")
         axes[row].legend()
     axes[row].set_ylabel("Noise")
     axes[row].grid(True, alpha=0.3)
     row += 1
 
     if "F_t" in results:
-        axes[row].plot(t[sl] * 1e6, np.real(results["F_t"][sl]), label="Re F(t)")
-        axes[row].plot(t[sl] * 1e6, np.imag(results["F_t"][sl]), label="Im F(t)")
+        axes[row].plot(t[sl], np.real(results["F_t"][sl]), label="Re F(t)")
+        axes[row].plot(t[sl], np.imag(results["F_t"][sl]), label="Im F(t)")
         axes[row].legend()
     axes[row].set_ylabel("Drive")
     axes[row].grid(True, alpha=0.3)
     row += 1
 
     if "psi_t" in results:
-        axes[row].plot(t[sl] * 1e6, np.real(results["psi_t"][sl]), label="Re ψ(t)")
-        axes[row].plot(t[sl] * 1e6, np.imag(results["psi_t"][sl]), label="Im ψ(t)")
+        axes[row].plot(t[sl], np.real(results["psi_t"][sl]), label="Re ψ(t)")
+        axes[row].plot(t[sl], np.imag(results["psi_t"][sl]), label="Im ψ(t)")
         axes[row].legend()
     axes[row].set_ylabel("Intracavity")
     axes[row].grid(True, alpha=0.3)
     row += 1
 
     if "s_out_t" in results:
-        axes[row].plot(t[sl] * 1e6, np.real(results["s_out_t"][sl]), label="Re s_out(t)")
-        axes[row].plot(t[sl] * 1e6, np.imag(results["s_out_t"][sl]), label="Im s_out(t)")
+        axes[row].plot(t[sl], np.real(results["s_out_t"][sl]), label="Re s_out(t)")
+        axes[row].plot(t[sl], np.imag(results["s_out_t"][sl]), label="Im s_out(t)")
         axes[row].legend()
     axes[row].set_ylabel("Output")
     axes[row].grid(True, alpha=0.3)
@@ -449,22 +449,22 @@ def plot_quadratures_vs_time(results: Dict[str, np.ndarray], max_points: int = 6
     fig, axes = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
     if "x_in" in results and "p_in" in results:
-        axes[0].plot(t[sl] * 1e6, results["x_in"][sl], label="X_in")
-        axes[0].plot(t[sl] * 1e6, results["p_in"][sl], label="P_in")
+        axes[0].plot(t[sl], results["x_in"][sl], label="X_in")
+        axes[0].plot(t[sl], results["p_in"][sl], label="P_in")
         axes[0].legend()
     axes[0].set_ylabel("Input quadratures")
     axes[0].grid(True, alpha=0.3)
 
     if "x_cav" in results and "p_cav" in results:
-        axes[1].plot(t[sl] * 1e6, results["x_cav"][sl], label="X_cav")
-        axes[1].plot(t[sl] * 1e6, results["p_cav"][sl], label="P_cav")
+        axes[1].plot(t[sl], results["x_cav"][sl], label="X_cav")
+        axes[1].plot(t[sl], results["p_cav"][sl], label="P_cav")
         axes[1].legend()
     axes[1].set_ylabel("Cavity quadratures")
     axes[1].grid(True, alpha=0.3)
 
     if "x_out" in results and "p_out" in results:
-        axes[2].plot(t[sl] * 1e6, results["x_out"][sl], label="X_out")
-        axes[2].plot(t[sl] * 1e6, results["p_out"][sl], label="P_out")
+        axes[2].plot(t[sl], results["x_out"][sl], label="X_out")
+        axes[2].plot(t[sl], results["p_out"][sl], label="P_out")
         axes[2].legend()
     axes[2].set_ylabel("Output quadratures")
     axes[2].set_xlabel("Time (ps)")
@@ -846,12 +846,12 @@ def plot_kerneldensityestimation(
     cbar = fig.colorbar(last_im, ax=axes, shrink=0.95, pad=0.02)
     cbar.set_label("Normalized density", fontsize=14)
 
-    plt.show()
+    return fig  
 
 def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
 
     needed = [
-        "transfer_var_xin",
+        "transfer_var_input",
         "transfer_var_xout",
         "transfer_var_pout",
     ]
@@ -860,27 +860,43 @@ def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional
         print("No transfer scan data found.")
         return None
 
+    mode = "amplitude"
+    if "transfer_noise_mode" in results:
+        mode = str(results["transfer_noise_mode"][0])
+
+    if mode == "phase":
+        input_label = r"$P_{in}$"
+        title = "Output noise versus input phase noise"
+
+    elif mode == "both":
+        input_label = r"$X_{in}+P_{in}$"
+        title = "Output noise versus input amplitude + phase noise"
+
+    else:
+        input_label = r"$X_{in}$"
+        title = "Output noise versus input amplitude noise"
+
     fig = plt.figure(figsize=(8, 5))
 
     plt.plot(
-        results["transfer_var_xin"],
+        results["transfer_var_input"],
         results["transfer_var_xout"],
         "o",
         ms=4,
-        label=r"$X_{in}\rightarrow X_{out}$"
+        label=rf"{input_label}$\rightarrow X_{{out}}$"
     )
 
     plt.plot(
-        results["transfer_var_xin"],
+        results["transfer_var_input"],
         results["transfer_var_pout"],
         "o",
         ms=4,
-        label=r"$X_{in}\rightarrow P_{out}$"
+        label=rf"{input_label}$\rightarrow P_{{out}}$"
     )
 
-    plt.xlabel(r"Var($X_{in}$)")
+    plt.xlabel(rf"Var({input_label})")
     plt.ylabel("Output variance")
-    plt.title("Output noise versus input amplitude noise")
+    plt.title(title)
     plt.grid(True, alpha=0.3)
     plt.legend()
 
@@ -892,30 +908,46 @@ def plot_transfer_gain(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
 
     needed = [
         "transfer_gains_dB",
-        "transfer_G_Xin_to_Xout",
-        "transfer_G_Xin_to_Pout",
+        "transfer_G_to_Xout",
+        "transfer_G_to_Pout",
     ]
 
     if not all(k in results for k in needed):
         print("No transfer gain data found.")
         return None
 
+    mode = "amplitude"
+    if "transfer_noise_mode" in results:
+        mode = str(results["transfer_noise_mode"][0])
+
+    if mode == "phase":
+        gain_label = r"$G_{P\to}$"
+        title = "Transfer gain versus input phase noise"
+
+    elif mode == "both":
+        gain_label = r"$G_{XP\to}$"
+        title = "Transfer gain versus input amplitude + phase noise"
+
+    else:
+        gain_label = r"$G_{X\to}$"
+        title = "Transfer gain versus input amplitude noise"
+
     fig = plt.figure(figsize=(8, 5))
 
     plt.plot(
         results["transfer_gains_dB"],
-        results["transfer_G_Xin_to_Xout"],
+        results["transfer_G_to_Xout"],
         "o",
         ms=4,
-        label=r"$G_{X\to X}$"
+        label=rf"{gain_label}X_{{out}}$"
     )
 
     plt.plot(
         results["transfer_gains_dB"],
-        results["transfer_G_Xin_to_Pout"],
+        results["transfer_G_to_Pout"],
         "o",
         ms=4,
-        label=r"$G_{X\to P}$"
+        label=rf"{gain_label}P_{{out}}$"
     )
 
     plt.axvline(
@@ -925,9 +957,9 @@ def plot_transfer_gain(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
         label="experiment: 5 dB"
     )
 
-    plt.xlabel("Input amplitude noise gain (dB)")
+    plt.xlabel("Input noise gain (dB)")
     plt.ylabel("Variance transfer gain")
-    plt.title("Transfer gain versus input noise gain")
+    plt.title(title)
     plt.grid(True, alpha=0.3)
     plt.legend()
 
@@ -951,14 +983,14 @@ def main() -> None:
     # -----------------------
     # CONFIG
     # -----------------------
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_results_sweep_phase_noise.npz")
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_sweep_amp2.npz")
     save_figures = True
-    output_dir = Path("Plots/polariton_homodyne_results_sweep_phase_noise")
+    output_dir = Path("Plots_balanced_sweep_amp2")
 
     # Choose what to replot and how
-    time_trace = True
+    time_trace = False
     quadratures_vs_time = True
-    phase_space = False
+    phase_space = True
     spectra = False
     cumulative = False
     psds = False
