@@ -1,0 +1,58 @@
+{
+  "noise": {
+    "mode": "both",
+    "cutoff_mhz": 100.0,
+    "gain_dB_amp": 5.0,
+    "gain_dB_phase": 5.0,
+    "strength_amp": 0.008891397050194615,
+    "strength_phase": 0.008891397050194615,
+    "seed": 12345
+  },
+  "cavity": {
+    "detuning_inv_ps": 0.21269744449675154,
+    "nonlinearity_inv_ps": 0.018231209528292987,
+    "loss_inv_ps": 0.10634872224837577,
+    "kappa_out_inv_ps": 0.10634872224837577,
+    "F_s": {
+      "__complex__": true,
+      "real": 0.7373737373737375,
+      "imag": 0.0
+    },
+    "psi0": {
+      "__complex__": true,
+      "real": 3.0320150405696995,
+      "imag": -2.1256337156522607
+    }
+  },
+  "sim": {
+    "duration_ps": 1000000.0,
+    "dt_ps": 1.0,
+    "discard_fraction": 0.1,
+    "integrator": "rk4",
+    "store_every": 10
+  },
+  "detection": {
+    "mode": "balanced_sum",
+    "lo_amplitude": 50.0,
+    "lo_phase_rad": 1.5707963267948966,
+    "detection_efficiency": 1.0,
+    "responsivity": 1.0,
+    "add_shot_noise": true,
+    "shot_noise_mode": "photocurrent",
+    "shot_noise_psd_per_mhz": 0.0,
+    "shot_noise_gain_per_current": 1.0,
+    "shot_noise_use_instantaneous_photocurrent": true,
+    "electronic_noise_psd_per_mhz": 0.0,
+    "simulate_vacuum_port": true,
+    "sigma_vac": 0.005
+  },
+  "spectrum": {
+    "nperseg": 1024,
+    "window": "hann",
+    "detrend": "constant",
+    "average": "mean"
+  },
+  "replot_info": {
+    "source_file": "/Users/gadanimatteo/Documents/Stage:The\u0300se LKB/Numerical Simulations/Thermal states/Results/polariton_homodyne_sweep_both.npz"
+  }
+}

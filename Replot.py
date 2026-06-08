@@ -382,18 +382,18 @@ def plot_time_traces(
 
     if mode == "homodyne":
         if "i_det_t" in results:
-            axes[row].plot(t[sl] * 1e6, results["i_det_t"][sl], label="i_det(t)")
+            axes[row].plot(t[sl], results["i_det_t"][sl], label="i_det(t)")
         if "i_meas_t" in results:
-            axes[row].plot(t[sl] * 1e6, results["i_meas_t"][sl], label="i_meas(t)", alpha=0.7)
+            axes[row].plot(t[sl], results["i_meas_t"][sl], label="i_meas(t)", alpha=0.7)
         axes[row].legend()
         axes[row].set_ylabel("Photocurrent")
         axes[row].set_xlabel(f"Time ($\mu$s)")
         axes[row].grid(True, alpha=0.3)
     else:
         if "i1_meas_t" in results:
-            axes[row].plot(t[sl] * 1e6, results["i1_meas_t"][sl], label="i1_meas(t)")
+            axes[row].plot(t[sl], results["i1_meas_t"][sl], label="i1_meas(t)")
         if "i2_meas_t" in results:
-            axes[row].plot(t[sl] * 1e6, results["i2_meas_t"][sl], label="i2_meas(t)", alpha=0.7)
+            axes[row].plot(t[sl], results["i2_meas_t"][sl], label="i2_meas(t)", alpha=0.7)
         axes[row].legend()
         axes[row].set_ylabel("Diodes currents")
         axes[row].set_xlabel(r"Time ($\mu$s)")
@@ -401,9 +401,9 @@ def plot_time_traces(
         row += 1
 
     if "i_plus_meas_t" in results:
-        axes[row].plot(t[sl] * 1e6, results["i_plus_meas_t"][sl], label="i+ meas(t)")
+        axes[row].plot(t[sl], results["i_plus_meas_t"][sl], label="i+ meas(t)")
     if "i_minus_meas_t" in results:
-        axes[row].plot(t[sl] * 1e6, results["i_minus_meas_t"][sl], label="i- meas(t)", alpha=0.7)
+        axes[row].plot(t[sl], results["i_minus_meas_t"][sl], label="i- meas(t)", alpha=0.7)
     axes[row].legend()
     axes[row].set_ylabel("Balanced meas.")
     axes[row].grid(True, alpha=0.3)
@@ -757,15 +757,7 @@ def plot_bistability(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
         else:
             rho_work = np.nan
 
-    plt.scatter(
-        [F_work],
-        [rho_work],
-        s=60,
-        color="red",
-        label="Working point",
-        zorder=5,
-    )
-
+    plt.scatter([F_work], [rho_work], s=60, color="red", label="Working point", zorder=5)
     plt.xlabel("Pump amplitude F")
     plt.ylabel(r"Intracavity density $|\psi|^2$")
     plt.title("Polariton bistability")
@@ -848,7 +840,9 @@ def plot_kerneldensityestimation(
 
     return fig  
 
-def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
+def plot_output_noise_vs_input_noise(
+    results: Dict[str, np.ndarray]
+) -> Optional[plt.Figure]:
 
     needed = [
         "transfer_var_input",
@@ -865,16 +859,22 @@ def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional
         mode = str(results["transfer_noise_mode"][0])
 
     if mode == "phase":
-        input_label = r"$P_{in}$"
+        input_label = r"$P_{\rm in}$"
         title = "Output noise versus input phase noise"
 
     elif mode == "both":
-        input_label = r"$X_{in}+P_{in}$"
-        title = "Output noise versus input amplitude + phase noise"
+        input_label = r"$X_{\rm in}+P_{\rm in}$"
+        title = (
+            "Output noise versus "
+            "input amplitude + phase noise"
+        )
 
     else:
-        input_label = r"$X_{in}$"
-        title = "Output noise versus input amplitude noise"
+        input_label = r"$X_{\rm in}$"
+        title = (
+            "Output noise versus "
+            "input amplitude noise"
+        )
 
     fig = plt.figure(figsize=(8, 5))
 
@@ -883,7 +883,8 @@ def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional
         results["transfer_var_xout"],
         "o",
         ms=4,
-        label=rf"{input_label}$\rightarrow X_{{out}}$"
+        label=rf"{input_label}"
+              rf"$\rightarrow X_{{\rm out}}$",
     )
 
     plt.plot(
@@ -891,77 +892,67 @@ def plot_output_noise_vs_input_noise(results: Dict[str, np.ndarray]) -> Optional
         results["transfer_var_pout"],
         "o",
         ms=4,
-        label=rf"{input_label}$\rightarrow P_{{out}}$"
+        label=rf"{input_label}"
+              rf"$\rightarrow P_{{\rm out}}$",
     )
 
-    plt.xlabel(rf"Var({input_label})")
-    plt.ylabel("Output variance")
+    plt.xlabel(r"$\mathrm{Var}(X_{\rm in})$")
+
+    plt.ylabel(r"$\mathrm{Var}(X_{\rm out})$")
+
     plt.title(title)
+
     plt.grid(True, alpha=0.3)
-    plt.legend()
+    plt.legend(fontsize=11)
 
     fig.tight_layout()
     return fig
 
 
-def plot_transfer_gain(results: Dict[str, np.ndarray]) -> Optional[plt.Figure]:
+def plot_transfer_gain(
+    results: Dict[str, np.ndarray]
+) -> Optional[plt.Figure]:
 
     needed = [
         "transfer_gains_dB",
-        "transfer_G_to_Xout",
-        "transfer_G_to_Pout",
+        "transfer_Gxx",
+        "transfer_Gpp",
+        "transfer_Gxp",
+        "transfer_Gpx"
     ]
 
     if not all(k in results for k in needed):
         print("No transfer gain data found.")
         return None
 
-    mode = "amplitude"
-    if "transfer_noise_mode" in results:
-        mode = str(results["transfer_noise_mode"][0])
+    eps = 1e-20
 
-    if mode == "phase":
-        gain_label = r"$G_{P\to}$"
-        title = "Transfer gain versus input phase noise"
-
-    elif mode == "both":
-        gain_label = r"$G_{XP\to}$"
-        title = "Transfer gain versus input amplitude + phase noise"
-
-    else:
-        gain_label = r"$G_{X\to}$"
-        title = "Transfer gain versus input amplitude noise"
+    Gxx = results["transfer_Gxx"]
+    Gpp = results["transfer_Gpp"]
+    Gxp = results["transfer_Gxp"]
+    Gpx = results["transfer_Gpx"]
 
     fig = plt.figure(figsize=(8, 5))
 
-    plt.plot(
-        results["transfer_gains_dB"],
-        results["transfer_G_to_Xout"],
-        "o",
-        ms=4,
-        label=rf"{gain_label}X_{{out}}$"
+    plt.plot(results["transfer_gains_dB"], Gxx, "o", ms=4, label=r"$G_{XX}$")
+    plt.plot(results["transfer_gains_dB"], Gpp, "o", ms=4, label=r"$G_{PP}$")
+    plt.plot(results["transfer_gains_dB"], Gxp, "o", ms=4, label=r"$G_{XP}$")
+    plt.plot(results["transfer_gains_dB"], Gpx, "o", ms=4, label=r"$G_{PX}$")
+    
+    plt.axvline(5, linestyle="--", color="gray", alpha=0.7, label="Experimental input noise = 5 dB")
+    plt.xlabel("Injected input noise gain (dB)")
+    plt.ylabel(
+        r"Transfer gain "
+        r"$G_{ij} = \sigma_i^{out}/\sigma_j^{in}$"
     )
 
-    plt.plot(
-        results["transfer_gains_dB"],
-        results["transfer_G_to_Pout"],
-        "o",
-        ms=4,
-        label=rf"{gain_label}P_{{out}}$"
+    plt.title(
+        "Quadrature noise transfer "
+        "through the cavity"
     )
 
-    plt.axvline(
-        5,
-        linestyle="--",
-        alpha=0.7,
-        label="experiment: 5 dB"
-    )
-
-    plt.xlabel("Input noise gain (dB)")
-    plt.ylabel("Variance transfer gain")
-    plt.title(title)
     plt.grid(True, alpha=0.3)
-    plt.legend()
+    plt.legend(fontsize=11)
 
     fig.tight_layout()
     return fig
@@ -983,12 +974,12 @@ def main() -> None:
     # -----------------------
     # CONFIG
     # -----------------------
-    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_sweep_amp2.npz")
+    input_path = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("Results/polariton_homodyne_sweep_both.npz")
     save_figures = True
-    output_dir = Path("Plots_balanced_sweep_amp2")
+    output_dir = Path("Plots/sweep_both")
 
     # Choose what to replot and how
-    time_trace = False
+    time_trace = True
     quadratures_vs_time = True
     phase_space = True
     spectra = False
